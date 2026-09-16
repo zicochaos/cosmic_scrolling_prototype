@@ -32,13 +32,27 @@ use wayland_client::{
     protocol::wl_output::{self, WlOutput},
 };
 
+pub use cctk::sctk::reexports::protocols::ext::workspace::v1::client::ext_workspace_handle_v1::ExtWorkspaceHandleV1;
+
 #[derive(Debug, Clone)]
 pub enum AppRequest {
-    TilingState(TilingState),
+    /// Set the tiling state of a specific workspace. The handle must have
+    /// been captured when the user made the request, so that the request
+    /// is applied to the same workspace even if the active workspace
+    /// changes before it is handled.
+    TilingState(TilingState, ExtWorkspaceHandleV1),
     DefaultBehavior(TilingState),
 }
 
-pub fn spawn_workspaces(tx: mpsc::Sender<TilingState>) -> SyncSender<AppRequest> {
+/// The tiling state of the workspace active on the panel output, with the
+/// handle identifying that workspace across workspace switches.
+#[derive(Debug, Clone)]
+pub struct ActiveWorkspaceTiling {
+    pub tiling: TilingState,
+    pub workspace: ExtWorkspaceHandleV1,
+}
+
+pub fn spawn_workspaces(tx: mpsc::Sender<ActiveWorkspaceTiling>) -> SyncSender<AppRequest> {
     let (workspaces_tx, workspaces_rx) = calloop::channel::sync_channel(100);
 
     let socket = std::env::var("X_PRIVILEGED_WAYLAND_SOCKET")
@@ -87,19 +101,20 @@ pub fn spawn_workspaces(tx: mpsc::Sender<TilingState>) -> SyncSender<AppRequest>
             let loop_handle = event_loop.handle();
             loop_handle
                 .insert_source(workspaces_rx, |e, (), state| match e {
-                    Event::Msg(AppRequest::TilingState(autotile)) => {
-                        if let Some(w) = state.workspace_state.workspace_groups().find_map(|g| {
-                            let output = state.expected_output.as_ref()?;
-                            if !g.outputs.contains(output) {
-                                return None;
-                            }
-                            g.workspaces
-                                .iter()
-                                .filter_map(|handle| state.workspace_state.workspace_info(handle))
-                                .find(|w| w.state.contains(ext_workspace_handle_v1::State::Active))
-                        }) {
+                    Event::Msg(AppRequest::TilingState(tiling, workspace)) => {
+                        // Resolve the workspace by the handle captured at
+                        // request time. Resolving by current activity here
+                        // would target whichever workspace became active
+                        // while the config write was in flight.
+                        if let Some(w) = state
+                            .workspace_state
+                            .workspace_groups()
+                            .flat_map(|g| g.workspaces.iter())
+                            .filter_map(|handle| state.workspace_state.workspace_info(handle))
+                            .find(|w| w.handle == workspace)
+                        {
                             if let Some(cosmic_handle) = &w.cosmic_handle {
-                                cosmic_handle.set_tiling_state(autotile);
+                                cosmic_handle.set_tiling_state(tiling);
                                 state
                                     .workspace_state
                                     .workspace_manager()
@@ -107,6 +122,8 @@ pub fn spawn_workspaces(tx: mpsc::Sender<TilingState>) -> SyncSender<AppRequest>
                                     .unwrap()
                                     .commit();
                             }
+                        } else {
+                            error!("Workspace from a pending layout change no longer exists; not applying its tiling state");
                         }
                     }
                     Event::Msg(AppRequest::DefaultBehavior(tiling)) => {
@@ -158,7 +175,7 @@ pub fn spawn_workspaces(tx: mpsc::Sender<TilingState>) -> SyncSender<AppRequest>
 #[derive(Debug)]
 pub struct State {
     running: bool,
-    tx: mpsc::Sender<TilingState>,
+    tx: mpsc::Sender<ActiveWorkspaceTiling>,
     configured_output: String,
     expected_output: Option<WlOutput>,
     output_state: OutputState,
@@ -170,7 +187,7 @@ pub struct State {
 }
 
 impl State {
-    pub fn tiling_state(&self) -> Option<TilingState> {
+    pub fn active_workspace_tiling(&self) -> Option<ActiveWorkspaceTiling> {
         self.workspace_state.workspace_groups().find_map(|g| {
             if g.outputs
                 .iter()
@@ -179,19 +196,20 @@ impl State {
                 g.workspaces
                     .iter()
                     .filter_map(|handle| self.workspace_state.workspace_info(handle))
-                    .find_map(|w| {
-                        if w.state.contains(ext_workspace_handle_v1::State::Active) {
-                            w.tiling.and_then(|e| {
-                                if let WEnum::Value(v) = e {
-                                    Some(v)
-                                } else {
-                                    error!("No tiling state for the workspace");
-                                    None
-                                }
-                            })
-                        } else {
-                            None
-                        }
+                    .find(|w| w.state.contains(ext_workspace_handle_v1::State::Active))
+                    .and_then(|w| {
+                        let tiling = w.tiling.and_then(|e| {
+                            if let WEnum::Value(v) = e {
+                                Some(v)
+                            } else {
+                                error!("No tiling state for the workspace");
+                                None
+                            }
+                        })?;
+                        Some(ActiveWorkspaceTiling {
+                            tiling,
+                            workspace: w.handle.clone(),
+                        })
                     })
             } else {
                 None
@@ -222,7 +240,7 @@ impl OutputHandler for State {
         if info.name.as_deref() == Some(&self.configured_output) {
             self.expected_output = Some(output);
             if self.have_workspaces {
-                if let Some(s) = self.tiling_state() {
+                if let Some(s) = self.active_workspace_tiling() {
                     let _ = block_on(self.tx.send(s));
                 }
             }
@@ -257,7 +275,7 @@ impl WorkspaceHandler for State {
 
     fn done(&mut self) {
         self.have_workspaces = true;
-        if let Some(s) = self.tiling_state() {
+        if let Some(s) = self.active_workspace_tiling() {
             let _ = block_on(self.tx.send(s));
         }
     }

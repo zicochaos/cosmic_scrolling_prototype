@@ -4,7 +4,7 @@
 use crate::{
     fl,
     layout::{LayoutTransition, WorkspaceLayoutMode, derive_layout_mode, plan_layout_transition},
-    wayland::AppRequest,
+    wayland::{AppRequest, ExtWorkspaceHandleV1},
     wayland_subscription,
     wayland_subscription::WorkspacesUpdate,
 };
@@ -92,7 +92,11 @@ pub struct Window {
     new_workspace_entity: Entity,
     /// may not match the config value if behavior is per-workspace
     autotiled: bool,
+    /// Workspace active on the panel output, as of the last workspace update.
+    active_workspace: Option<ExtWorkspaceHandleV1>,
+    /// Workspace captured when the in-flight layout change was requested.
     layout_change_pending: bool,
+    pending_workspace: Option<ExtWorkspaceHandleV1>,
     workspace_tx: Option<SyncSender<AppRequest>>,
 }
 
@@ -177,7 +181,9 @@ impl cosmic::Application for Window {
             core,
             popup: None,
             autotiled: config.autotile,
+            active_workspace: None,
             layout_change_pending: false,
+            pending_workspace: None,
             config,
             config_helper,
             current_workspace_layout_model,
@@ -205,8 +211,9 @@ impl cosmic::Application for Window {
     fn update(&mut self, message: Self::Message) -> app::Task<Self::Message> {
         match message {
             Message::WorkspaceUpdate(msg) => match msg {
-                WorkspacesUpdate::State(state) => {
-                    self.autotiled = matches!(state, TilingState::TilingEnabled);
+                WorkspacesUpdate::State(active) => {
+                    self.autotiled = matches!(active.tiling, TilingState::TilingEnabled);
+                    self.active_workspace = Some(active.workspace);
                     self.sync_current_workspace_layout();
                 }
                 WorkspacesUpdate::Started(tx) => {
@@ -214,6 +221,7 @@ impl cosmic::Application for Window {
                 }
                 WorkspacesUpdate::Errored => {
                     self.workspace_tx = None;
+                    self.active_workspace = None;
                     error!("Workspaces subscription failed...");
                 }
             },
@@ -254,6 +262,7 @@ impl cosmic::Application for Window {
             }
             Message::LayoutChanged(result) => {
                 self.layout_change_pending = false;
+                let pending_workspace = self.pending_workspace.take();
                 match result {
                     Ok(transition) => {
                         if let Some(engine) = transition.tiling_engine {
@@ -265,10 +274,20 @@ impl cosmic::Application for Window {
                             } else {
                                 TilingState::FloatingOnly
                             };
-                            if let Some(tx) = &self.workspace_tx {
-                                if let Err(err) = tx.try_send(AppRequest::TilingState(state)) {
-                                    error!(?err, "Failed to request workspace layout");
+                            // Target the workspace that was active when the
+                            // user clicked, never whichever workspace is
+                            // active now that the engine write completed.
+                            match (&self.workspace_tx, pending_workspace) {
+                                (Some(tx), Some(workspace)) => {
+                                    if let Err(err) =
+                                        tx.try_send(AppRequest::TilingState(state, workspace))
+                                    {
+                                        error!(?err, "Failed to request workspace layout");
+                                    }
                                 }
+                                _ => error!(
+                                    "Dropping workspace tiling request: the workspace is unknown or the wayland connection is gone"
+                                ),
                             }
                         }
                     }
@@ -357,7 +376,10 @@ impl cosmic::Application for Window {
                 .on_activate(Message::NewWorkspace);
         let mut current_workspace_layout_button =
             segmented_control::horizontal(&self.current_workspace_layout_model);
-        if !self.layout_change_pending && self.workspace_tx.is_some() {
+        if !self.layout_change_pending
+            && self.workspace_tx.is_some()
+            && self.active_workspace.is_some()
+        {
             current_workspace_layout_button =
                 current_workspace_layout_button.on_activate(Message::CurrentWorkspaceLayout);
         }
@@ -433,7 +455,6 @@ impl Window {
             .entity(self.current_workspace_layout());
         self.current_workspace_layout_model.activate(entity);
     }
-
     fn set_current_workspace_layout(
         &mut self,
         requested: WorkspaceLayoutMode,
@@ -442,6 +463,13 @@ impl Window {
         if self.layout_change_pending || self.workspace_tx.is_none() {
             return Task::none();
         }
+        // The deferred tiling request must target the workspace the user saw
+        // when clicking, not whichever workspace is active when the engine
+        // write completes.
+        let Some(workspace) = self.active_workspace.clone() else {
+            error!("No known active workspace; ignoring layout request");
+            return Task::none();
+        };
         let transition =
             plan_layout_transition(self.autotiled, self.config.tiling_engine, requested);
         if transition == LayoutTransition::default() {
@@ -450,6 +478,7 @@ impl Window {
         }
 
         self.layout_change_pending = true;
+        self.pending_workspace = Some(workspace);
         let helper = self.config_helper.clone();
         cosmic::task::future(async move {
             let result = tokio::task::spawn_blocking(move || {

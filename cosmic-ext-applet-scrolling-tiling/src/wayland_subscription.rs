@@ -1,23 +1,23 @@
 // Copyright 2023 System76 <info@system76.com>
 // SPDX-License-Identifier: GPL-3.0-only
 
-use crate::wayland::{self, AppRequest};
+use crate::wayland::{self, ActiveWorkspaceTiling, AppRequest};
 use cctk::sctk::reexports::calloop::channel::SyncSender;
 use cosmic::iced::{
     self, Subscription,
     futures::{self, SinkExt, StreamExt, channel::mpsc},
     stream,
 };
-use cosmic_protocols::workspace::v2::client::zcosmic_workspace_handle_v2::TilingState;
+
 use std::sync::LazyLock;
 use tokio::sync::Mutex;
 
-pub static WAYLAND_RX: LazyLock<Mutex<Option<mpsc::Receiver<TilingState>>>> =
+pub static WAYLAND_RX: LazyLock<Mutex<Option<mpsc::Receiver<ActiveWorkspaceTiling>>>> =
     LazyLock::new(|| Mutex::new(None));
 
 #[derive(Debug, Clone)]
 pub enum WorkspacesUpdate {
-    State(TilingState),
+    State(ActiveWorkspaceTiling),
     Started(SyncSender<AppRequest>),
     Errored,
 }
@@ -71,7 +71,7 @@ pub enum State {
 }
 
 pub struct WorkspacesWatcher {
-    rx: mpsc::Receiver<TilingState>,
+    rx: mpsc::Receiver<ActiveWorkspaceTiling>,
     tx: SyncSender<AppRequest>,
 }
 
