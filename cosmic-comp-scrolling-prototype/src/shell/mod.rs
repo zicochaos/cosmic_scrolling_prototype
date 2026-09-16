@@ -3910,7 +3910,19 @@ impl Shell {
                     let was_tiled = workspace
                         .tiling_layer
                         .unmap_as_placeholder(&mapped, PlaceholderType::GrabbedWindow);
-                    assert!(was_floating.is_some() != was_tiled.is_some());
+                    assert!(
+                        was_floating.is_none() || was_tiled.is_none(),
+                        "a window must never be mapped in both layers"
+                    );
+                    if was_floating.is_none() && was_tiled.is_none() {
+                        // A scrolling animation interrupt can drop the node of
+                        // a window mapped while confined to a queued tree;
+                        // recover with a floating grab instead of crashing.
+                        tracing::warn!(
+                            app_id = mapped.active_window().app_id(),
+                            "grabbed window was missing from both layers; treating it as floating"
+                        );
+                    }
                     if was_floating.is_some_and(|geo| geo.size != elem_geo.size) {
                         new_size = was_floating.map(|geo| geo.size.as_logical());
                     }

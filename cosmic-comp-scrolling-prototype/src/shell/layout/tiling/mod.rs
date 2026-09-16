@@ -828,7 +828,15 @@ impl TilingLayout {
         }
 
         let blocker = self.update_positions_for(&mut tree, gaps);
-        self.queue.push_tree(tree, ANIMATION_DURATION, blocker);
+        if self.tiling_engine == TilingEngine::Scrolling {
+            // Retarget instead of chaining: an in-flight animation must never
+            // queue this tree behind the visual source, where an interrupt
+            // would silently drop the newly mapped node.
+            self.queue
+                .push_retargetable_tree(tree, ANIMATION_DURATION, blocker);
+        } else {
+            self.queue.push_tree(tree, ANIMATION_DURATION, blocker);
+        }
     }
 
     pub fn map_internal<'a>(
@@ -859,7 +867,12 @@ impl TilingLayout {
             minimize_rect,
         );
         let blocker = self.update_positions_for(&mut tree, gaps);
-        self.queue.push_tree(tree, duration, blocker);
+        if self.tiling_engine == TilingEngine::Scrolling {
+            // See map_new_toplevel: Scrolling pushes must stay retargetable.
+            self.queue.push_retargetable_tree(tree, duration, blocker);
+        } else {
+            self.queue.push_tree(tree, duration, blocker);
+        }
     }
 
     pub fn remap<'a>(
@@ -924,8 +937,14 @@ impl TilingLayout {
                 *window.tiling_node_id.lock().unwrap() = Some(new_id);
 
                 let blocker = self.update_positions_for(&mut tree, gaps);
-                self.queue
-                    .push_tree(tree, MINIMIZE_ANIMATION_DURATION, blocker);
+                if self.tiling_engine == TilingEngine::Scrolling {
+                    // See map_new_toplevel: Scrolling pushes must stay retargetable.
+                    self.queue
+                        .push_retargetable_tree(tree, MINIMIZE_ANIMATION_DURATION, blocker);
+                } else {
+                    self.queue
+                        .push_tree(tree, MINIMIZE_ANIMATION_DURATION, blocker);
+                }
                 return;
             }
 
@@ -962,8 +981,14 @@ impl TilingLayout {
                 *window.tiling_node_id.lock().unwrap() = Some(new_id);
 
                 let blocker = self.update_positions_for(&mut tree, gaps);
-                self.queue
-                    .push_tree(tree, MINIMIZE_ANIMATION_DURATION, blocker);
+                if self.tiling_engine == TilingEngine::Scrolling {
+                    // See map_new_toplevel: Scrolling pushes must stay retargetable.
+                    self.queue
+                        .push_retargetable_tree(tree, MINIMIZE_ANIMATION_DURATION, blocker);
+                } else {
+                    self.queue
+                        .push_tree(tree, MINIMIZE_ANIMATION_DURATION, blocker);
+                }
                 return;
             }
         }
@@ -1814,6 +1839,16 @@ impl TilingLayout {
 
         if self.tiling_engine == TilingEngine::Scrolling {
             self.prepare_scrolling_direct_tree();
+        }
+
+        // Defensive: an interrupt can drop a node that was still confined to
+        // a tree queued behind the visual source (for example a window
+        // grabbed between map and its configure completing). Fall back to a
+        // floating grab instead of corrupting the tree or crashing.
+        if self.queue.trees.back().unwrap().0.get(&node_id).is_err() {
+            window.output_leave(&self.output);
+            window.set_tiled(false);
+            return None;
         }
 
         // Initialize last_overview_hover to the placeholder position so that
@@ -2827,7 +2862,13 @@ impl TilingLayout {
             *orientation = new_orientation;
 
             let blocker = self.update_positions_for(&mut tree, gaps);
-            self.queue.push_tree(tree, ANIMATION_DURATION, blocker);
+            if self.tiling_engine == TilingEngine::Scrolling {
+                // See map_new_toplevel: Scrolling pushes must stay retargetable.
+                self.queue
+                    .push_retargetable_tree(tree, ANIMATION_DURATION, blocker);
+            } else {
+                self.queue.push_tree(tree, ANIMATION_DURATION, blocker);
+            }
         }
     }
 
@@ -7472,6 +7513,73 @@ mod tests {
         assert!(queue.animation_start.is_none());
         assert_eq!(queue.trees.len(), 2);
         assert_eq!(queue.trees.back().unwrap().1, Duration::ZERO);
+    }
+
+    #[test]
+    fn interrupt_drops_nodes_confined_to_chained_trees() {
+        // Documents why every Scrolling push must be retargetable: interrupt()
+        // rebuilds the queue from the visual tree, so a node inserted only
+        // into a plain push_tree entry chained behind an animation disappears
+        // from the authoritative tree. unmap_as_placeholder relies on this
+        // never happening for newly mapped windows.
+        let geometry = Rectangle::new((0, 0).into(), (1_200, 800).into());
+        let mut queue = TreeQueue::default();
+        let mut tree = Tree::new();
+        let root = tree
+            .insert(
+                Node::new(Data::Group {
+                    orientation: Orientation::Vertical,
+                    sizes: vec![600, 600],
+                    last_geometry: geometry,
+                    alive: Arc::new(()),
+                    pill_indicator: None,
+                }),
+                InsertBehavior::AsRoot,
+            )
+            .unwrap();
+        let insert = |tree: &mut Tree<Data>| {
+            tree.insert(
+                Node::new(Data::Placeholder {
+                    id: Id::new(),
+                    last_geometry: geometry,
+                    type_: PlaceholderType::GrabbedWindow,
+                }),
+                InsertBehavior::UnderNode(&root),
+            )
+            .unwrap()
+        };
+        let first = insert(&mut tree);
+        queue.push_tree(tree.copy_clone(), Duration::ZERO, None);
+        queue.push_retargetable_tree(tree, ANIMATION_DURATION, None);
+        queue.animation_start = Some(Instant::now());
+
+        // A newly mapped window lands only in the chained third tree.
+        let mut newer = queue.trees.back().unwrap().0.copy_clone();
+        let chained = insert(&mut newer);
+        assert_ne!(chained, first);
+        queue.push_tree(newer, ANIMATION_DURATION, None);
+        assert_eq!(queue.trees.len(), 3);
+        let visual = queue.prepare_direct_tree();
+        // interrupt() collapses the queue to the single visual tree.
+        assert_eq!(queue.trees.len(), 1);
+        assert!(visual.get(&chained).is_err());
+        assert!(queue.trees.back().unwrap().0.get(&chained).is_err());
+    }
+
+    #[test]
+    fn retargetable_pushes_keep_an_animating_scrolling_queue_bounded() {
+        // The map/remap/orientation paths use retargetable pushes in Scrolling
+        // mode, so a window mapped during an animation can never end up
+        // confined behind the visual source (see the test above).
+        let mut queue = TreeQueue::default();
+        queue.push_tree(Tree::new(), Duration::ZERO, None);
+        queue.push_retargetable_tree(Tree::new(), ANIMATION_DURATION, None);
+        queue.animation_start = Some(Instant::now());
+
+        queue.push_retargetable_tree(Tree::new(), ANIMATION_DURATION, None);
+
+        assert_eq!(queue.trees.len(), 2);
+        assert!(queue.animation_start.is_none());
     }
 
     #[test]
