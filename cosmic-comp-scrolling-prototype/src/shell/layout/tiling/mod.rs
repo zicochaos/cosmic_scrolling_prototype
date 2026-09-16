@@ -2096,11 +2096,17 @@ impl TilingLayout {
         if self.tiling_engine != TilingEngine::Scrolling || !delta_x.is_finite() {
             return false;
         }
-        let interrupted = self.queue.animation_start.is_some() || self.queue.trees.len() > 1;
+        // A pan that cannot move the viewport must not interrupt an
+        // animation that is still queued behind it.
+        if !self.scrolling.pan_viewport_would_change(delta_x) {
+            return false;
+        }
         let gaps = self.gaps();
         let mut tree = self.prepare_scrolling_direct_tree();
         if !self.scrolling.pan_viewport(delta_x) {
-            return interrupted;
+            // The queue was interrupted; keep the gesture consumed even if
+            // the model reconciled to a no-op in the meantime.
+            return true;
         }
 
         let blocker = self

@@ -349,6 +349,11 @@ impl ScrollingLayout {
         self.model.pan_viewport(delta_x)
     }
 
+    /// Whether a pan would move the viewport, without mutating the model.
+    pub(super) fn pan_viewport_would_change(&self, delta_x: f64) -> bool {
+        self.model.pan_viewport_would_change(delta_x)
+    }
+
     /// Recover the virtual viewport represented by an interrupted visual tree.
     /// Prefer the focused tile because it is the stable anchor during keyboard
     /// movement; fall back to the first modeled tile still present.
@@ -1568,17 +1573,47 @@ where
             self.viewport_x = 0.0;
         }
         if self.user_positioned_viewport && !self.columns.is_empty() {
-            let viewport_width = self.viewport_width.max(0) as f64;
-            let first_center = self.column_width(0) as f64 / 2.0;
-            let last = self.columns.len() - 1;
-            let last_center = self.layout_x(last) + self.column_width(last) as f64 / 2.0;
-            let min_viewport = first_center - viewport_width / 2.0;
-            let max_viewport = last_center - viewport_width / 2.0;
-            self.viewport_x = self.viewport_x.clamp(min_viewport, max_viewport);
+            self.viewport_x = self.user_positioned_viewport_target(self.viewport_x);
         } else {
             let max_viewport = (self.strip_width() - self.viewport_width.max(0) as f64).max(0.0);
             self.viewport_x = self.viewport_x.clamp(0.0, max_viewport);
         }
+    }
+
+    /// The viewport a user-positioned pan targets: the first and last columns
+    /// may each be centered, matching explicit centering at the strip edges.
+    fn user_positioned_viewport_target(&self, viewport_x: f64) -> f64 {
+        let viewport_width = self.viewport_width.max(0) as f64;
+        let first_center = self.column_width(0) as f64 / 2.0;
+        let last = self.columns.len() - 1;
+        let last_center = self.layout_x(last) + self.column_width(last) as f64 / 2.0;
+        let min_viewport = first_center - viewport_width / 2.0;
+        let max_viewport = last_center - viewport_width / 2.0;
+        viewport_x.clamp(min_viewport, max_viewport)
+    }
+
+    /// Whether `pan_viewport(delta_x)` would move the viewport, without
+    /// mutating the model. Callers use this to keep a no-op pan from
+    /// interrupting an animation that is still queued.
+    fn pan_viewport_would_change(&self, delta_x: f64) -> bool {
+        if !delta_x.is_finite() || self.viewport_width <= 0 || self.columns.is_empty() {
+            return false;
+        }
+        if self
+            .columns
+            .iter()
+            .map(|column| column.tiles.len())
+            .sum::<usize>()
+            == 1
+        {
+            let Some(tile) = self.columns.first().and_then(|column| column.tiles.first()) else {
+                return false;
+            };
+            return self.centering_changes_viewport(tile);
+        }
+
+        let target = self.user_positioned_viewport_target(self.viewport_x + delta_x);
+        (target - self.viewport_x).abs() > f64::EPSILON
     }
 }
 
