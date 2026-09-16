@@ -206,6 +206,14 @@ impl ScrollingLayout {
         if let Some(viewport_x) = preserved_viewport.filter(|viewport_x| viewport_x.is_finite()) {
             if !self.model.columns.is_empty() {
                 self.model.viewport_x = viewport_x;
+                // Reconciliation may have removed edge columns (a closed
+                // window, a finished drag) while the viewport was captured;
+                // keep it inside the possibly shrunken strip. Live pointer
+                // resizes are exempt: their resize anchor intentionally
+                // holds the viewport against the strip edge mid-drag.
+                if live_resize.is_none() {
+                    self.model.clamp_viewport();
+                }
             }
         } else {
             self.model
