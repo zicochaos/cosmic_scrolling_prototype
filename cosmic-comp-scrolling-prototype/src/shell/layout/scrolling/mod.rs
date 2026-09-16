@@ -3310,4 +3310,137 @@ mod tests {
             12
         );
     }
+    #[test]
+    fn single_tile_column_moves_left_into_right_neighbor_top_at_zero() {
+        // delta == -1 at column 0 merges the lone tile into what becomes the
+        // first column (originally the right neighbor), inserted on top.
+        let mut model = ColumnModel {
+            columns: vec![
+                Column {
+                    tiles: vec![1],
+                    width: ColumnWidth::new(0.4),
+                },
+                Column {
+                    tiles: vec![2],
+                    width: ColumnWidth::new(0.8),
+                },
+                Column {
+                    tiles: vec![3],
+                    width: ColumnWidth::new(0.5),
+                },
+            ],
+            focused: Some(1),
+            ..ColumnModel::default()
+        };
+
+        assert_eq!(model.move_tile_vertical(&1, -1), TileMove::Moved);
+
+        assert_eq!(tile_columns(&model), [vec![1, 2], vec![3]]);
+        assert_eq!(width_fractions(&model), [0.8, 0.5]);
+        assert_eq!(model.focused, Some(1));
+    }
+
+    fn scrolling_test_output() -> Output {
+        let output = Output::new(
+            "scrolling-test".into(),
+            smithay::output::PhysicalProperties {
+                size: (0, 0).into(),
+                subpixel: smithay::output::Subpixel::Unknown,
+                make: "COSMIC".into(),
+                model: "test".into(),
+                serial_number: "test".into(),
+            },
+        );
+        output.change_current_state(
+            Some(smithay::output::Mode {
+                size: (1_200, 800).into(),
+                refresh: 60_000,
+            }),
+            None,
+            None,
+            Some((0, 0).into()),
+        );
+        output
+    }
+
+    fn placeholder_tree(count: usize) -> (Tree<Data>, Vec<NodeId>) {
+        let geometry = Rectangle::new((0, 0).into(), (1_200, 800).into());
+        let mut tree = Tree::new();
+        let root = tree
+            .insert(
+                Node::new(Data::Group {
+                    orientation: Orientation::Vertical,
+                    sizes: vec![400; count],
+                    last_geometry: geometry,
+                    alive: std::sync::Arc::new(()),
+                    pill_indicator: None,
+                }),
+                InsertBehavior::AsRoot,
+            )
+            .unwrap();
+        let ids = (0..count)
+            .map(|_| {
+                tree.insert(
+                    Node::new(Data::Placeholder {
+                        id: Id::new(),
+                        last_geometry: geometry,
+                        type_: PlaceholderType::GrabbedWindow,
+                    }),
+                    InsertBehavior::UnderNode(&root),
+                )
+                .unwrap()
+            })
+            .collect();
+        (tree, ids)
+    }
+
+    #[test]
+    fn sync_viewport_from_tree_round_trip_stays_within_half_a_pixel() {
+        let output = scrolling_test_output();
+        let mut scrolling = ScrollingLayout::default();
+        let (mut tree, _) = placeholder_tree(4);
+        scrolling.update_positions(&output, &mut tree, (0, 0));
+        for cycle in 1..=8 {
+            assert!(scrolling.model.pan_viewport(97.0));
+            scrolling.update_positions_preserving_viewport(&output, &mut tree, (0, 0));
+            let written = scrolling.model.viewport_x;
+
+            // Simulate an interrupt that loses the model viewport: only the
+            // visual tree still represents it.
+            scrolling.model.viewport_x = 0.0;
+            assert!(scrolling.sync_viewport_from_tree(&output, &tree, (0, 0)));
+            assert!(
+                (scrolling.model.viewport_x - written).abs() <= 0.5,
+                "cycle {cycle}: recovered {} from written {}",
+                scrolling.model.viewport_x,
+                written
+            );
+        }
+    }
+
+    #[test]
+    fn preserved_viewport_is_reclamped_when_reconciliation_shrinks_the_strip() {
+        let output = scrolling_test_output();
+        let mut scrolling = ScrollingLayout::default();
+        let (mut wide, _) = placeholder_tree(4);
+        scrolling.update_positions(&output, &mut wide, (0, 0));
+
+        // Pan to the far end of the four-column strip.
+        assert!(scrolling.model.pan_viewport(10_000.0));
+        let panned = scrolling.model.viewport_x;
+        assert!(panned > 0.0);
+
+        // The last two tiles close; the preserved viewport must be clamped
+        // back inside the shrunken two-column strip.
+        let (mut shrunk, _) = placeholder_tree(2);
+        scrolling.update_positions_preserving_viewport(&output, &mut shrunk, (0, 0));
+
+        let max_viewport = scrolling.model.user_positioned_viewport_target(f64::MAX / 2.0);
+        assert!(
+            scrolling.model.viewport_x <= max_viewport + f64::EPSILON,
+            "viewport {} exceeds clamped maximum {}",
+            scrolling.model.viewport_x,
+            max_viewport
+        );
+    }
 }
