@@ -73,8 +73,8 @@ COSMIC_APPLETS_REV='matching-commit' ./install.sh
 
 The applet is assembled against that upstream workspace in `.cosmic-scrolling/`.
 Its config source is copied from **`cosmic-comp-scrolling-prototype`**, not the
-unmodified `cosmic-comp` reference folder. The installer tests the applet,
-then builds both programs with locked dependencies. Translations are embedded
+unmodified `cosmic-comp` reference folder. The installer tests the compositor
+and the applet, then builds both programs with locked dependencies. Translations are embedded
 in the applet binary so it works after the temporary workspace is moved. The applet's assembled
 lockfile is reconciled for this local config dependency first.
 
@@ -83,6 +83,16 @@ To build both programs and refresh the private applet without changing the greet
 ```bash
 ./install.sh --build-only
 ```
+
+The compositor is built with Cargo's `debug` profile by default. To install an
+optimized build that keeps debug symbols:
+
+```bash
+SCROLLING_PROFILE=fastdebug ./install.sh
+```
+
+The selected profile is recorded in `.cosmic-scrolling/manifest`, and the
+session launcher runs the matching `target/<profile>/cosmic-comp` binary.
 
 After installation, log out, select **COSMIC Scrolling Test** in the session
 chooser, and log in. Run `./install.sh` again after source changes or after
@@ -165,6 +175,11 @@ Preserve build files but also remove the isolated test-session settings with:
 ./uninstall.sh --purge-config
 ```
 
+The test session's settings live in `.cosmic-scrolling/session-config`, outside
+`target/`, so `cargo clean` cannot delete them. `--purge-config` also removes
+the legacy `cosmic-comp-scrolling-prototype/target/scrolling-test-config` copy
+left by older installs.
+
 If the test session fails, return to the normal **COSMIC** session from the
 greeter or press `Ctrl+Alt+F3`, log in, and run the uninstaller.
 
@@ -174,7 +189,7 @@ The compositor's Classic width-animation correction remains restricted to
 Scrolling; Classic preserves upstream rendering behavior. The applet uses the
 same `tiling_engine` setting and workspace protocol as this prototype.
 
-Automated applet layout tests run during installation. Script checks can be
+Automated compositor and applet tests run during installation. Script checks can be
 run without a live session:
 
 ```bash

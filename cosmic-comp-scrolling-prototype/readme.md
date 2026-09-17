@@ -1,12 +1,14 @@
 # COSMIC scrolling test session
 
 This repository can install an additional greeter entry named **COSMIC
-Scrolling Test**. It runs `target/debug/cosmic-comp` from the clone where the
-installer was invoked, with
-`COSMIC_SCROLLING_TILING=1`. The normal COSMIC session and
+Scrolling Test**. It runs the compositor built in this clone — normally
+`target/debug/cosmic-comp`, or `target/fastdebug/cosmic-comp` when the parent
+suite recorded `SCROLLING_PROFILE=fastdebug` in `.cosmic-scrolling/manifest` —
+with `COSMIC_SCROLLING_TILING=1`. The normal COSMIC session and
 `/usr/bin/cosmic-comp` are not replaced. Its COSMIC configuration is isolated
-in `target/scrolling-test-config`, so it does not change your normal COSMIC
-settings. The rest of the desktop comes from the installed system COSMIC
+in `target/scrolling-test-config`, or in `.cosmic-scrolling/session-config`
+when the parent suite is installed (keeping the settings safe from
+`cargo clean`), so it does not change your normal COSMIC
 session. When the parent suite's `install.sh` has built the modified applet,
 this launcher also uses its owned `.cosmic-scrolling/prefix` for the Window
 Layout applet and icons. Without that optional installation, it uses system
@@ -162,6 +164,10 @@ Remove settings created by the test session:
 # Run from the root of the clone used for testing.
 rm -rf target/scrolling-test-config
 ```
+
+When the parent suite's installer is present, the isolated settings live in
+`.cosmic-scrolling/session-config` instead; remove them with the parent
+`./uninstall.sh --purge-config`.
 
 To remove build output produced while testing:
 
