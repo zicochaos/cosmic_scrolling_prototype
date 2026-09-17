@@ -210,6 +210,54 @@ with open(os.environ['SESSION_TEST_LOG'], 'a') as f:
         self.assertEqual(self.calls()[0]['env']['XDG_DATA_DIRS'], str(state / 'prefix/share') + ':/usr/local/share:/usr/share')
         self.assertIn({'systemctl': ['--user', 'unset-environment', 'XDG_DATA_DIRS']}, self.calls())
 
+    def test_suite_profile_selects_recorded_compositor_and_suite_config(self):
+        state = self.private_applet()
+        (state / 'manifest').write_text('owner=cosmic-scrolling-prototype-v1\nprofile=fastdebug\n')
+        self.executable(self.clone / 'target/fastdebug/cosmic-comp', '#!/bin/sh\nexit 0\n')
+        self.run_script('start-scrolling-session.sh')
+        env = self.calls()[0]['env']
+        self.assertEqual(env['PATH'].split(os.pathsep)[:2],
+                         [str(state / 'prefix/bin'), str(self.clone / 'target/fastdebug')])
+        self.assertEqual(env['XDG_CONFIG_HOME'], str(state / 'session-config'))
+        config = Path(env['XDG_CONFIG_HOME']) / 'cosmic/com.system76.CosmicComp/v1'
+        self.assertEqual((config / 'autotile').read_text(), 'true\n')
+        self.assertEqual((config / 'tiling_engine').read_text(), 'Scrolling\n')
+        self.assertFalse((self.clone / 'target/scrolling-test-config').exists())
+
+    def test_missing_profile_compositor_is_a_clear_error(self):
+        state = self.private_applet()
+        (state / 'manifest').write_text('owner=cosmic-scrolling-prototype-v1\nprofile=fastdebug\n')
+        result = self.run_script('start-scrolling-session.sh', code=1)
+        self.assertIn('target/fastdebug/cosmic-comp', result.stderr)
+        self.assertIn('--profile fastdebug', result.stderr)
+        self.assertFalse((self.root / 'calls.jsonl').exists())
+        self.assertFalse((state / 'session-config').exists())
+
+    def test_unknown_manifest_profile_falls_back_to_debug(self):
+        state = self.private_applet()
+        (state / 'manifest').write_text('owner=cosmic-scrolling-prototype-v1\nprofile=release\n')
+        self.run_script('start-scrolling-session.sh')
+        env = self.calls()[0]['env']
+        self.assertEqual(env['PATH'].split(os.pathsep)[:2],
+                         [str(state / 'prefix/bin'), str(self.clone / 'target/debug')])
+        self.assertEqual(env['XDG_CONFIG_HOME'], str(state / 'session-config'))
+
+    def test_session_installer_uses_manifest_profile_binary(self):
+        state = self.private_applet()
+        (state / 'manifest').write_text('owner=cosmic-scrolling-prototype-v1\nprofile=fastdebug\n')
+        (self.clone / 'target/debug/cosmic-comp').unlink()
+        self.executable(self.clone / 'target/fastdebug/cosmic-comp', '#!/bin/sh\nexit 0\n')
+        self.install()
+        self.assertTrue(self.launcher.exists())
+
+    def test_session_installer_refuses_missing_manifest_profile_binary(self):
+        state = self.private_applet()
+        (state / 'manifest').write_text('owner=cosmic-scrolling-prototype-v1\nprofile=fastdebug\n')
+        (self.clone / 'target/debug/cosmic-comp').unlink()
+        result = self.install(code=1)
+        self.assertIn('--profile fastdebug', result.stderr)
+        self.assertFalse(self.stage.exists())
+
     def test_incomplete_private_applet_refuses_silent_system_fallback(self):
         state = self.private_applet()
         (state / 'prefix/bin/cosmic-applet-tiling').unlink()

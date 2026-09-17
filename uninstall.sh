@@ -62,7 +62,8 @@ COMP_ROOT="$SUITE_ROOT/cosmic-comp-scrolling-prototype"
 STATE_ROOT="$SUITE_ROOT/.cosmic-scrolling"
 PREFIX="$STATE_ROOT/prefix"
 SOURCE_LAUNCHER="$COMP_ROOT/start-scrolling-session.sh"
-CONFIG_ROOT="$COMP_ROOT/target/scrolling-test-config"
+SUITE_CONFIG_ROOT="$STATE_ROOT/session-config"
+LEGACY_CONFIG_ROOT="$COMP_ROOT/target/scrolling-test-config"
 
 # Do not follow redirected installation directories when writing/removing files.
 for owned_directory in "$STATE_ROOT" "$PREFIX" "$PREFIX/bin" "$PREFIX/share" \
@@ -103,10 +104,11 @@ if [ -e "$STATE_ROOT/manifest" ]; then
 elif [ "$PRIVATE_FILES_EXIST" = true ]; then
     die "refusing to remove an unowned private applet prefix: $PREFIX"
 fi
-
-if [ "${XDG_CONFIG_HOME:-}" = "$CONFIG_ROOT" ]; then
-    die "log into normal COSMIC before uninstalling the active test session"
-fi
+case "${XDG_CONFIG_HOME:-}" in
+    "$SUITE_CONFIG_ROOT"|"$LEGACY_CONFIG_ROOT")
+        die "log into normal COSMIC before uninstalling the active test session"
+        ;;
+esac
 
 if [ -e "$SYSTEM_DESKTOP" ]; then
     run_as_root rm -f -- "$SYSTEM_DESKTOP"
@@ -148,15 +150,26 @@ rmdir -- "$PREFIX" 2>/dev/null || true
 note "Removed the project-private applet installation."
 
 if [ "$PURGE_CONFIG" = true ]; then
-    case "$CONFIG_ROOT" in
-        "$COMP_ROOT"/target/scrolling-test-config) ;;
-        *) die "refusing unsafe configuration path: $CONFIG_ROOT" ;;
+    case "$SUITE_CONFIG_ROOT" in
+        "$STATE_ROOT"/session-config) ;;
+        *) die "refusing unsafe configuration path: $SUITE_CONFIG_ROOT" ;;
     esac
-    [ "$CONFIG_ROOT" != "$COMP_ROOT" ] || die "refusing to remove the compositor root"
-    rm -rf -- "$CONFIG_ROOT"
-    note "Removed isolated settings: $CONFIG_ROOT"
+    [ "$SUITE_CONFIG_ROOT" != "$STATE_ROOT" ] || die "refusing to remove the state root"
+    rm -rf -- "$SUITE_CONFIG_ROOT"
+    note "Removed isolated settings: $SUITE_CONFIG_ROOT"
+    # Older installs kept the isolated settings inside the compositor's
+    # target/ directory; purge that legacy copy too when it is still present.
+    case "$LEGACY_CONFIG_ROOT" in
+        "$COMP_ROOT"/target/scrolling-test-config) ;;
+        *) die "refusing unsafe configuration path: $LEGACY_CONFIG_ROOT" ;;
+    esac
+    [ "$LEGACY_CONFIG_ROOT" != "$COMP_ROOT" ] || die "refusing to remove the compositor root"
+    if [ -e "$LEGACY_CONFIG_ROOT" ] || [ -L "$LEGACY_CONFIG_ROOT" ]; then
+        rm -rf -- "$LEGACY_CONFIG_ROOT"
+        note "Removed legacy isolated settings: $LEGACY_CONFIG_ROOT"
+    fi
 else
-    note "Retained isolated settings: $CONFIG_ROOT"
+    note "Retained isolated settings: $SUITE_CONFIG_ROOT"
     note "Use ./uninstall.sh --purge-config to remove them."
 fi
 

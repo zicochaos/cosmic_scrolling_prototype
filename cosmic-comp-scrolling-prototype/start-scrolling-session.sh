@@ -4,13 +4,39 @@ set -eu
 
 SCRIPT_PATH=$(readlink -f -- "$0")
 PROJECT_ROOT=$(CDPATH= cd -- "$(dirname -- "$SCRIPT_PATH")" && pwd -P)
-COMPOSITOR="$PROJECT_ROOT/target/debug/cosmic-comp"
-TEST_CONFIG_HOME="$PROJECT_ROOT/target/scrolling-test-config"
+SUITE_ROOT=$(dirname -- "$PROJECT_ROOT")
+APPLET_STATE="$SUITE_ROOT/.cosmic-scrolling"
+APPLET_PREFIX="$APPLET_STATE/prefix"
+
+# The suite installer records the compositor's Cargo build profile in its
+# manifest. Standalone compositor checkouts have no manifest and always use
+# target/debug.
+COMPOSITOR_PROFILE=debug
+if [ -f "$APPLET_STATE/manifest" ]; then
+    MANIFEST_PROFILE=$(grep '^profile=' "$APPLET_STATE/manifest" || true)
+    case "$MANIFEST_PROFILE" in
+        profile=debug|profile=fastdebug) COMPOSITOR_PROFILE=${MANIFEST_PROFILE#profile=} ;;
+    esac
+fi
+COMPOSITOR="$PROJECT_ROOT/target/$COMPOSITOR_PROFILE/cosmic-comp"
+
+# Suite installs keep the isolated settings beside the private applet state,
+# outside target/, so cargo clean cannot delete a live session's settings. A
+# standalone compositor checkout continues to use target/scrolling-test-config.
+if [ -d "$APPLET_STATE" ]; then
+    TEST_CONFIG_HOME="$APPLET_STATE/session-config"
+else
+    TEST_CONFIG_HOME="$PROJECT_ROOT/target/scrolling-test-config"
+fi
 TEST_COMP_CONFIG="$TEST_CONFIG_HOME/cosmic/com.system76.CosmicComp/v1"
 
 if [ ! -x "$COMPOSITOR" ]; then
+    COMPOSITOR_PROFILE_ARG=""
+    if [ "$COMPOSITOR_PROFILE" = fastdebug ]; then
+        COMPOSITOR_PROFILE_ARG="--profile $COMPOSITOR_PROFILE"
+    fi
     echo "Scrolling test compositor is missing: $COMPOSITOR" >&2
-    echo "Build it with: cd $PROJECT_ROOT && cargo build --locked" >&2
+    echo "Build it with: cd $PROJECT_ROOT && cargo build --locked $COMPOSITOR_PROFILE_ARG" >&2
     exit 1
 fi
 
@@ -29,9 +55,6 @@ fi
 
 # The suite installer owns this optional prefix. A standalone compositor
 # checkout continues to use the distribution applet.
-SUITE_ROOT=$(dirname -- "$PROJECT_ROOT")
-APPLET_STATE="$SUITE_ROOT/.cosmic-scrolling"
-APPLET_PREFIX="$APPLET_STATE/prefix"
 USE_PRIVATE_APPLET=false
 if [ -e "$APPLET_STATE/manifest" ]; then
     if ! grep -qxF 'owner=cosmic-scrolling-prototype-v1' "$APPLET_STATE/manifest" \
@@ -106,7 +129,7 @@ trap restore_user_manager_environment EXIT
 
 export COSMIC_SCROLLING_TILING=1
 export COSMIC_SCROLLING_SESSION=1
-export PATH="$PROJECT_ROOT/target/debug:$PATH"
+export PATH="$PROJECT_ROOT/target/$COMPOSITOR_PROFILE:$PATH"
 if [ "$USE_PRIVATE_APPLET" = true ]; then
     export PATH="$APPLET_PREFIX/bin:$PATH"
     export XDG_DATA_DIRS="$APPLET_PREFIX/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"

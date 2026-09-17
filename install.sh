@@ -49,6 +49,10 @@ Environment:
   COSMIC_APPLETS_REV  Exact cosmic-applets Git revision. If unset, the final
                       component of the installed cosmic-applets package version
                       is used.
+
+  SCROLLING_PROFILE   Cargo profile used to build the compositor: debug
+                      (default) or fastdebug, an optimized build that keeps
+                      debug symbols.
 EOF
         exit 0
         ;;
@@ -63,6 +67,14 @@ done
 case "$DESTDIR" in
     ""|/*) ;;
     *) die "DESTDIR must be an absolute directory" ;;
+esac
+
+# Validate the compositor build profile before doing any work. The profile is
+# recorded in the ownership manifest and selects target/<profile>/cosmic-comp.
+SCROLLING_PROFILE=${SCROLLING_PROFILE:-debug}
+case "$SCROLLING_PROFILE" in
+    debug|fastdebug) ;;
+    *) die "invalid SCROLLING_PROFILE (expected debug or fastdebug): $SCROLLING_PROFILE" ;;
 esac
 
 need_command readlink
@@ -137,9 +149,16 @@ esac
 mkdir -p -- "$STATE_ROOT" "$PREFIX/bin" "$PREFIX/share/applications" \
     "$PREFIX/share/icons/hicolor/scalable/apps" "$CARGO_TARGET"
 
-note "Building the scrolling compositor..."
-(cd -- "$COMP_ROOT" && cargo build --locked)
-COMPOSITOR="$COMP_ROOT/target/debug/cosmic-comp"
+note "Testing and building the scrolling compositor..."
+(cd -- "$COMP_ROOT" && cargo test --locked)
+# `debug` is a reserved profile name in Cargo: the default development
+# profile is built without a --profile flag (output lands in target/debug).
+CARGO_PROFILE_ARGS=
+if [ "$SCROLLING_PROFILE" = fastdebug ]; then
+    CARGO_PROFILE_ARGS="--profile fastdebug"
+fi
+(cd -- "$COMP_ROOT" && cargo build --locked $CARGO_PROFILE_ARGS)
+COMPOSITOR="$COMP_ROOT/target/$SCROLLING_PROFILE/cosmic-comp"
 [ -x "$COMPOSITOR" ] || die "Cargo completed but the compositor is missing: $COMPOSITOR"
 
 if [ ! -d "$UPSTREAM_REPO/.git" ]; then
@@ -303,7 +322,7 @@ install -m 0755 "$APPLET_BINARY" "$PREFIX/bin/cosmic-applet-tiling.new"
 mv -fT -- "$PREFIX/bin/cosmic-applet-tiling.new" "$PREFIX/bin/cosmic-applet-tiling"
 # This path is relative to .cosmic-scrolling/prefix/bin, keeping the symlink
 # portable and free of checkout/user-specific path information.
-ln -sfnT -- ../../../cosmic-comp-scrolling-prototype/target/debug/cosmic-comp \
+ln -sfnT -- "../../../cosmic-comp-scrolling-prototype/target/$SCROLLING_PROFILE/cosmic-comp" \
     "$PREFIX/bin/cosmic-comp"
 PRIVATE_DESKTOP="$PREFIX/share/applications/com.system76.CosmicAppletTiling.desktop"
 # COSMIC applets are hidden panel plugins and do not need an application-menu
@@ -321,8 +340,9 @@ done
 
 cat >"$STATE_ROOT/manifest" <<EOF
 owner=$OWNER_ID
+profile=$SCROLLING_PROFILE
 cosmic_applets_revision=$RESOLVED_REV
-compositor=cosmic-comp-scrolling-prototype/target/debug/cosmic-comp
+compositor=cosmic-comp-scrolling-prototype/target/$SCROLLING_PROFILE/cosmic-comp
 applet=.cosmic-scrolling/prefix/bin/cosmic-applet-tiling
 launcher=cosmic-comp-scrolling-prototype/start-scrolling-session.sh
 EOF

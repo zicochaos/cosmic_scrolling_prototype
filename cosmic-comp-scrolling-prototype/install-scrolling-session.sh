@@ -4,6 +4,7 @@ set -eu
 
 SCRIPT_PATH=$(readlink -f -- "$0")
 PROJECT_ROOT=$(CDPATH= cd -- "$(dirname -- "$SCRIPT_PATH")" && pwd -P)
+SUITE_ROOT=$(dirname -- "$PROJECT_ROOT")
 DESTDIR=${DESTDIR-}
 
 usage() {
@@ -29,8 +30,18 @@ case "$DESTDIR" in
     *) echo "DESTDIR must be an absolute directory." >&2; exit 2 ;;
 esac
 
-if [ ! -x "$PROJECT_ROOT/target/debug/cosmic-comp" ]; then
-    echo "Build the compositor first: cd \"$PROJECT_ROOT\" && cargo build --locked" >&2
+# Match start-scrolling-session.sh: prefer the build profile recorded by the
+# parent suite's manifest; standalone clones always use target/debug.
+SUITE_MANIFEST="$SUITE_ROOT/.cosmic-scrolling/manifest"
+COMPOSITOR_PROFILE=debug
+if [ -f "$SUITE_MANIFEST" ]; then
+    MANIFEST_PROFILE=$(grep '^profile=' "$SUITE_MANIFEST" || true)
+    case "$MANIFEST_PROFILE" in
+        profile=debug|profile=fastdebug) COMPOSITOR_PROFILE=${MANIFEST_PROFILE#profile=} ;;
+    esac
+fi
+if [ ! -x "$PROJECT_ROOT/target/$COMPOSITOR_PROFILE/cosmic-comp" ]; then
+    echo "Build the compositor first: cd \"$PROJECT_ROOT\" && cargo build --locked --profile $COMPOSITOR_PROFILE" >&2
     exit 1
 fi
 if [ ! -x "$PROJECT_ROOT/start-scrolling-session.sh" ]; then
