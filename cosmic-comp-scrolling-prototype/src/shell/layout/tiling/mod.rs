@@ -1267,12 +1267,23 @@ impl TilingLayout {
 
                 TilingLayout::unmap_internal(&mut this_tree, &desc.node);
                 let blocker = this.update_positions_for(&mut this_tree, this_gaps);
-                this.queue.push_tree(this_tree, ANIMATION_DURATION, blocker);
+                if this.tiling_engine == TilingEngine::Scrolling {
+                    this.queue
+                        .push_retargetable_tree(this_tree, ANIMATION_DURATION, blocker);
+                } else {
+                    this.queue.push_tree(this_tree, ANIMATION_DURATION, blocker);
+                }
 
                 let blocker = other.update_positions_for(&mut other_tree, other_gaps);
-                other
-                    .queue
-                    .push_tree(other_tree, ANIMATION_DURATION, blocker);
+                if other.tiling_engine == TilingEngine::Scrolling {
+                    other
+                        .queue
+                        .push_retargetable_tree(other_tree, ANIMATION_DURATION, blocker);
+                } else {
+                    other
+                        .queue
+                        .push_tree(other_tree, ANIMATION_DURATION, blocker);
+                }
 
                 other.node_desc_to_focus(&NodeDesc {
                     handle: *other_handle,
@@ -1706,20 +1717,36 @@ impl TilingLayout {
 
         let this_gaps = this.gaps();
         let blocker = this.update_positions_for(&mut this_tree, this_gaps);
-        this.queue.push_tree(this_tree, ANIMATION_DURATION, blocker);
+        if this.tiling_engine == TilingEngine::Scrolling {
+            this.queue
+                .push_retargetable_tree(this_tree, ANIMATION_DURATION, blocker);
+        } else {
+            this.queue.push_tree(this_tree, ANIMATION_DURATION, blocker);
+        }
 
         let has_other_tree = other_tree.is_some();
         if let Some(mut other_tree) = other_tree {
             if let Some(other) = other.as_mut() {
                 let other_gaps = other.gaps();
                 let blocker = other.update_positions_for(&mut other_tree, other_gaps);
-                other
-                    .queue
-                    .push_tree(other_tree, ANIMATION_DURATION, blocker);
+                if other.tiling_engine == TilingEngine::Scrolling {
+                    other
+                        .queue
+                        .push_retargetable_tree(other_tree, ANIMATION_DURATION, blocker);
+                } else {
+                    other
+                        .queue
+                        .push_tree(other_tree, ANIMATION_DURATION, blocker);
+                }
             } else {
                 let blocker = this.update_positions_for(&mut other_tree, this_gaps);
-                this.queue
-                    .push_tree(other_tree, ANIMATION_DURATION, blocker);
+                if this.tiling_engine == TilingEngine::Scrolling {
+                    this.queue
+                        .push_retargetable_tree(other_tree, ANIMATION_DURATION, blocker);
+                } else {
+                    this.queue
+                        .push_tree(other_tree, ANIMATION_DURATION, blocker);
+                }
             }
         }
 
@@ -2272,7 +2299,12 @@ impl TilingLayout {
                     *mapped.tiling_node_id.lock().unwrap() = Some(new_id);
 
                     let blocker = self.update_positions_for(&mut tree, gaps);
-                    self.queue.push_tree(tree, ANIMATION_DURATION, blocker);
+                    if self.tiling_engine == TilingEngine::Scrolling {
+                        self.queue
+                            .push_retargetable_tree(tree, ANIMATION_DURATION, blocker);
+                    } else {
+                        self.queue.push_tree(tree, ANIMATION_DURATION, blocker);
+                    }
                     return MoveResult::ShiftFocus(mapped.into());
                 }
                 StackMoveResult::Default => {} // continue normally
@@ -2994,7 +3026,12 @@ impl TilingLayout {
         };
 
         let blocker = self.update_positions_for(&mut tree, gaps);
-        self.queue.push_tree(tree, ANIMATION_DURATION, blocker);
+        if self.tiling_engine == TilingEngine::Scrolling {
+            self.queue
+                .push_retargetable_tree(tree, ANIMATION_DURATION, blocker);
+        } else {
+            self.queue.push_tree(tree, ANIMATION_DURATION, blocker);
+        }
 
         Some(result)
     }
@@ -5009,7 +5046,12 @@ impl TilingLayout {
         TilingLayout::merge_trees(src, &mut dst, orientation);
 
         let blocker = self.update_positions_for(&mut dst, gaps);
-        self.queue.push_tree(dst, ANIMATION_DURATION, blocker);
+        if self.tiling_engine == TilingEngine::Scrolling {
+            self.queue
+                .push_retargetable_tree(dst, ANIMATION_DURATION, blocker);
+        } else {
+            self.queue.push_tree(dst, ANIMATION_DURATION, blocker);
+        }
     }
 
     fn merge_trees(src: Tree<Data>, dst: &mut Tree<Data>, orientation: Orientation) {
