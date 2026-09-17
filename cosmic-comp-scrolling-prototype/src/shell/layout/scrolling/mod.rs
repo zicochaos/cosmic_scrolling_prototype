@@ -207,11 +207,12 @@ impl ScrollingLayout {
             if !self.model.columns.is_empty() {
                 self.model.viewport_x = viewport_x;
                 // Reconciliation may have removed edge columns (a closed
-                // window, a finished drag) while the viewport was captured;
-                // keep it inside the possibly shrunken strip. Live pointer
-                // resizes are exempt: their resize anchor intentionally
-                // holds the viewport against the strip edge mid-drag.
-                if live_resize.is_none() {
+                // window, a finished drag) while a user-positioned viewport
+                // was captured; keep it inside the possibly shrunken strip.
+                // Centered viewports are exempt: a lone or centered edge
+                // column legitimately holds a negative viewport, and live
+                // pointer resizes hold their anchor against the strip edge.
+                if live_resize.is_none() && self.model.user_positioned_viewport {
                     self.model.clamp_viewport();
                 }
             }
@@ -3398,17 +3399,22 @@ mod tests {
     fn sync_viewport_from_tree_round_trip_stays_within_half_a_pixel() {
         let output = scrolling_test_output();
         let mut scrolling = ScrollingLayout::default();
-        let (mut tree, _) = placeholder_tree(4);
-        scrolling.update_positions(&output, &mut tree, (0, 0));
+        // Non-zero gaps keep scrolling_viewport's origin off zero, and the
+        // fractional column width exercises the rounding bound.
+        let (mut tree, ids) = placeholder_tree(4);
+        scrolling.update_positions(&output, &mut tree, (4, 8));
+
         for cycle in 1..=8 {
-            assert!(scrolling.model.pan_viewport(97.0));
-            scrolling.update_positions_preserving_viewport(&output, &mut tree, (0, 0));
+            assert!(scrolling.model.pan_viewport(97.3));
+            scrolling.update_positions_preserving_viewport(&output, &mut tree, (4, 8));
             let written = scrolling.model.viewport_x;
 
-            // Simulate an interrupt that loses the model viewport: only the
-            // visual tree still represents it.
+            // Simulate an interrupt that loses the model viewport and
+            // prefers a focused tile in a non-zero column: only the visual
+            // tree still represents the viewport.
+            scrolling.model.focused = Some(ids[1].clone());
             scrolling.model.viewport_x = 0.0;
-            assert!(scrolling.sync_viewport_from_tree(&output, &tree, (0, 0)));
+            assert!(scrolling.sync_viewport_from_tree(&output, &tree, (4, 8)));
             assert!(
                 (scrolling.model.viewport_x - written).abs() <= 0.5,
                 "cycle {cycle}: recovered {} from written {}",
@@ -3422,7 +3428,7 @@ mod tests {
     fn preserved_viewport_is_reclamped_when_reconciliation_shrinks_the_strip() {
         let output = scrolling_test_output();
         let mut scrolling = ScrollingLayout::default();
-        let (mut wide, _) = placeholder_tree(4);
+        let (mut wide, ids) = placeholder_tree(4);
         scrolling.update_positions(&output, &mut wide, (0, 0));
 
         // Pan to the far end of the four-column strip.
@@ -3430,17 +3436,72 @@ mod tests {
         let panned = scrolling.model.viewport_x;
         assert!(panned > 0.0);
 
-        // The last two tiles close; the preserved viewport must be clamped
-        // back inside the shrunken two-column strip.
+        // The last two tiles disappear during a live pointer resize: the
+        // resize anchor holds the viewport past the new bounds.
         let (mut shrunk, _) = placeholder_tree(2);
-        scrolling.update_positions_preserving_viewport(&output, &mut shrunk, (0, 0));
-
-        let max_viewport = scrolling.model.user_positioned_viewport_target(f64::MAX / 2.0);
-        assert!(
-            scrolling.model.viewport_x <= max_viewport + f64::EPSILON,
-            "viewport {} exceeds clamped maximum {}",
-            scrolling.model.viewport_x,
-            max_viewport
+        scrolling.update_positions_for_live_resize(
+            &output,
+            &mut shrunk,
+            (0, 0),
+            &[ids[0].clone()],
+            true,
         );
+        assert_eq!(scrolling.model.viewport_x, panned);
+
+        // The non-live preserving update re-clamps the same viewport into
+        // the shrunken strip, exactly to the clamped target.
+        scrolling.update_positions_preserving_viewport(&output, &mut shrunk, (0, 0));
+        let expected = scrolling.model.user_positioned_viewport_target(panned);
+        assert!(
+            (scrolling.model.viewport_x - expected).abs() < 1e-9,
+            "viewport {} should clamp to {}",
+            scrolling.model.viewport_x,
+            expected
+        );
+    }
+
+    #[test]
+    fn zero_motion_column_grab_keeps_a_lone_centered_column_centered() {
+        let output = scrolling_test_output();
+        let mut scrolling = ScrollingLayout::default();
+        let (mut tree, _) = placeholder_tree(1);
+        scrolling.update_positions(&output, &mut tree, (0, 0));
+
+        // A lone tile is centered: the viewport is negative and not
+        // user-positioned.
+        let centered = scrolling.model.viewport_x;
+        assert!(centered < 0.0);
+        assert!(!scrolling.model.user_positioned_viewport);
+
+        // A zero-motion grab finishes through the preserving path and must
+        // keep the centered viewport instead of clamping it to zero.
+        scrolling.update_positions_preserving_viewport(&output, &mut tree, (0, 0));
+        assert_eq!(scrolling.model.viewport_x, centered);
+    }
+
+    #[test]
+    fn pan_viewport_would_change_mirrors_pan_viewport() {
+        let mut model = ColumnModel::default();
+        model.set_metrics(1_200, 0);
+        model.reconcile([1, 2, 3]);
+
+        // Multi-tile: a productive pan is detected, then a pan clamped at
+        // the right edge is a no-op for both.
+        assert!(model.pan_viewport_would_change(240.0));
+        assert!(model.pan_viewport(240.0));
+        assert!(model.pan_viewport(10_000.0));
+        let at_edge = model.viewport_x;
+        assert!(!model.pan_viewport_would_change(500.0));
+        assert!(!model.pan_viewport(500.0));
+        assert_eq!(model.viewport_x, at_edge);
+
+        // Single tile: the preview mirrors the recentering pan.
+        let mut single = ColumnModel::default();
+        single.set_metrics(1_200, 0);
+        single.reconcile([7]);
+        assert!(single.pan_viewport_would_change(240.0));
+        assert!(single.pan_viewport(240.0));
+        assert!(!single.pan_viewport_would_change(240.0));
+        assert!(!single.pan_viewport(240.0));
     }
 }

@@ -7631,6 +7631,55 @@ mod tests {
     }
 
     #[test]
+    fn no_op_scrolling_pan_leaves_a_pending_animation_intact() {
+        let geometry = Rectangle::new((0, 0).into(), (1_200, 800).into());
+        let mut layout = sized_scrolling_layout();
+        let mut tree = Tree::new();
+        let root = tree
+            .insert(
+                Node::new(Data::Group {
+                    orientation: Orientation::Vertical,
+                    sizes: vec![400, 400, 400],
+                    last_geometry: geometry,
+                    alive: Arc::new(()),
+                    pill_indicator: None,
+                }),
+                InsertBehavior::AsRoot,
+            )
+            .unwrap();
+        for _ in 0..3 {
+            tree.insert(
+                Node::new(Data::Placeholder {
+                    id: Id::new(),
+                    last_geometry: geometry,
+                    type_: PlaceholderType::GrabbedWindow,
+                }),
+                InsertBehavior::UnderNode(&root),
+            )
+            .unwrap();
+        }
+        let blocker = layout.update_positions_for(&mut tree, layout.gaps());
+        layout.queue.trees.clear();
+        layout.queue.push_tree(tree, Duration::ZERO, blocker);
+
+        // Pan to the right clamp edge, then leave an animation pending.
+        assert!(layout.pan_scrolling_viewport(10_000.0));
+        layout.push_scrolling_animation(layout.tree().copy_clone(), None);
+        layout.queue.animation_start = Some(Instant::now());
+        assert_eq!(layout.queue.trees.len(), 2);
+
+        // A pan already clamped at the edge is a no-op and must not
+        // interrupt the pending animation.
+        assert!(!layout.pan_scrolling_viewport(500.0));
+        assert_eq!(layout.queue.trees.len(), 2);
+        assert!(layout.queue.animation_start.is_some());
+
+        // A productive pan still applies directly and interrupts.
+        assert!(layout.pan_scrolling_viewport(-200.0));
+        assert!(layout.queue.animation_start.is_none());
+    }
+
+    #[test]
     fn scrolling_focus_and_center_viewport_changes_are_animated() {
         let geometry = Rectangle::new((0, 0).into(), (1_200, 800).into());
         let mut layout = sized_scrolling_layout();
