@@ -188,23 +188,34 @@ rm -f -- "$ARCHIVE_FILE"
 # entire historical workspace when the config path dependency is substituted.
 WORKSPACE_MANIFEST="$STAGING_WORKSPACE/Cargo.toml"
 awk '
-    /^default-members = / {
+    function closes_array(line) {
+        return line ~ /\][[:space:]]*$/
+    }
+    /^[[:space:]]*default-members[[:space:]]*=/ {
         print "default-members = [\"cosmic-applet-tiling\"]"
+        in_default = !closes_array($0)
         next
     }
-    /^members = \[/ {
+    in_default {
+        if (closes_array($0)) in_default = 0
+        next
+    }
+    /^[[:space:]]*members[[:space:]]*=[[:space:]]*\[/ {
         print "members = [\"cosmic-applet-tiling\"]"
-        in_members = ($0 !~ /\]/)
+        in_members = !closes_array($0)
         next
     }
     in_members {
-        if ($0 ~ /^\]/) in_members = 0
+        if ($0 ~ /^[[:space:]]*\]/ || closes_array($0)) in_members = 0
         next
     }
     { print }
-' "$WORKSPACE_MANIFEST" >"$WORKSPACE_MANIFEST.new"
+    END {
+        if (in_members || in_default) exit 1
+    }
+' "$WORKSPACE_MANIFEST" >"$WORKSPACE_MANIFEST.new" || die "the applet workspace manifest has an unterminated member list"
 mv -- "$WORKSPACE_MANIFEST.new" "$WORKSPACE_MANIFEST"
-grep -q '^members = \["cosmic-applet-tiling"\]$' "$WORKSPACE_MANIFEST" \
+grep -Eq '^[[:space:]]*members[[:space:]]*=[[:space:]]*\["cosmic-applet-tiling"\][[:space:]]*$' "$WORKSPACE_MANIFEST" \
     || die "failed to limit the assembled applet workspace"
 
 UPSTREAM_APPLET="$STAGING_WORKSPACE/cosmic-applet-tiling"
