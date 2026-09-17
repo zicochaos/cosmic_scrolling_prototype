@@ -109,6 +109,11 @@ case "${XDG_CONFIG_HOME:-}" in
         die "log into normal COSMIC before uninstalling the active test session"
         ;;
 esac
+if [ "${COSMIC_SCROLLING_SESSION:-}" = 1 ]; then
+    # Newer sessions no longer redirect XDG_CONFIG_HOME; this marker is set
+    # for the whole test session instead.
+    die "log into normal COSMIC before uninstalling the active test session"
+fi
 
 if [ -e "$SYSTEM_DESKTOP" ]; then
     run_as_root rm -f -- "$SYSTEM_DESKTOP"
@@ -147,6 +152,18 @@ rmdir -- "$PREFIX/share/icons/hicolor" 2>/dev/null || true
 rmdir -- "$PREFIX/share/icons" 2>/dev/null || true
 rmdir -- "$PREFIX/share" 2>/dev/null || true
 rmdir -- "$PREFIX" 2>/dev/null || true
+
+# The session launcher regenerates these wrappers on every login; remove
+# them so a stale PATH entry cannot shadow a rebuilt compositor.
+SESSION_BIN="$STATE_ROOT/session-bin"
+case "$SESSION_BIN" in
+    "$STATE_ROOT"/session-bin) ;;
+    *) die "refusing unsafe session wrapper path: $SESSION_BIN" ;;
+esac
+if [ -e "$SESSION_BIN" ] || [ -L "$SESSION_BIN" ]; then
+    rm -rf -- "$SESSION_BIN"
+    note "Removed session wrappers: $SESSION_BIN"
+fi
 note "Removed the project-private applet installation."
 
 if [ "$PURGE_CONFIG" = true ]; then

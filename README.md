@@ -66,9 +66,13 @@ commit; the review order is preserved on the `fix/review-findings` branch.
   (release with debug symbols). The profile is recorded in the ownership
   manifest and honored by the session launcher, session installer, PATH, and
   build hints.
-- The test session's isolated settings live in
+- The test session shares the user's real configuration; only the
+  compositor's own settings are isolated (see the install section), so
+  testing happens with your actual application data and settings instead
+  of a clean slate.
+- The compositor's isolated settings live in
   `.cosmic-scrolling/session-config` so `cargo clean` cannot delete them;
-  `uninstall.sh --purge-config` removes both the new and the legacy
+  `uninstall.sh --purge-config` removes both that directory and the legacy
   location.
 - The workspace-manifest rewrite tolerates whitespace variants, multi-line
   `default-members`, and inline-closing member lists, and fails loudly on an
@@ -170,9 +174,14 @@ Only greeter files are redirected by `--destdir` (or `DESTDIR`). Builds and the
 private applet remain in this project; staged uninstall removes that private
 applet too. Staging does not add a live login option.
 
-The session launcher prepends `.cosmic-scrolling/prefix/bin` and its `share`
-directory to the test session's search paths. This makes the existing tiling
-panel entry use the modified applet. Paths are restored in the user systemd
+The session launcher prepends `.cosmic-scrolling/session-bin`,
+`.cosmic-scrolling/prefix/bin`, and the compositor build directory to the
+test session's `PATH`. `session-bin` holds small wrappers that give only
+`cosmic-comp` and the private tiling applet an isolated
+`XDG_CONFIG_HOME`; every other process in the session — browsers, editors,
+terminals — keeps and writes your real configuration. The isolation exists
+because this compositor stores `tiling_engine` values the distribution
+compositor must not read. Search paths are restored in the user systemd
 manager on logout. Keep this checkout in place while it is installed.
 
 ## Layout controls

@@ -5,15 +5,18 @@ Scrolling Test**. It runs the compositor built in this clone — normally
 `target/debug/cosmic-comp`, or `target/fastdebug/cosmic-comp` when the parent
 suite recorded `SCROLLING_PROFILE=fastdebug` in `.cosmic-scrolling/manifest` —
 with `COSMIC_SCROLLING_TILING=1`. The normal COSMIC session and
-`/usr/bin/cosmic-comp` are not replaced. Its COSMIC configuration is isolated
-in `target/scrolling-test-config`, or in `.cosmic-scrolling/session-config`
-when the parent suite is installed (keeping the settings safe from
-`cargo clean`), so it does not change your normal COSMIC
-session. When the parent suite's `install.sh` has built the modified applet,
-this launcher also uses its owned `.cosmic-scrolling/prefix` for the Window
-Layout applet and icons. Without that optional installation, it uses system
-applets; use the CLI below to select Classic or Scrolling. For the complete
-compositor + applet installation, follow the [parent README](../README.md).
+`/usr/bin/cosmic-comp` are not replaced. Only the compositor's own COSMIC
+configuration is isolated — in `target/scrolling-test-config`, or in
+`.cosmic-scrolling/session-config` when the parent suite is installed
+(keeping the settings safe from `cargo clean`) — because this compositor
+writes `tiling_engine` values the distribution compositor must not read.
+The rest of the session shares your real configuration, so applications
+behave exactly as in a normal login. When the parent suite's `install.sh`
+has built the modified applet, this launcher also uses its owned
+`.cosmic-scrolling/prefix` for the Window Layout applet and icons. Without
+that optional installation, it uses system applets; use the CLI below to
+select Classic or Scrolling. For the complete compositor + applet
+installation, follow the [parent README](../README.md).
 
 No repository path is hardcoded. The installer creates
 `/usr/local/bin/cosmic-scrolling-test-session` as a symlink to this clone's
@@ -105,28 +108,13 @@ selection uses the normal KMS backend.
 
 ## Switch tiling mode from the CLI
 
-Run these commands from a terminal inside **COSMIC Scrolling Test**. The test
-launcher sets `XDG_CONFIG_HOME` to this clone's isolated configuration, so the
-commands do not modify the normal COSMIC session.
-
-Switch immediately to Scrolling mode:
-
-```bash
-MODE_FILE="$XDG_CONFIG_HOME/cosmic/com.system76.CosmicComp/v1/tiling_engine"
-printf '%s\n' Scrolling >"$MODE_FILE"
-```
-
-Switch immediately to Classic mode:
+Run these commands from a terminal inside **COSMIC Scrolling Test**. Only the
+compositor reads this isolated configuration; in the session your
+`XDG_CONFIG_HOME` stays real, so address the mode file by its full path.
+Define a helper once in that terminal:
 
 ```bash
-MODE_FILE="$XDG_CONFIG_HOME/cosmic/com.system76.CosmicComp/v1/tiling_engine"
-printf '%s\n' Classic >"$MODE_FILE"
-```
-
-For repeated testing, define a helper once in that terminal:
-
-```bash
-MODE_FILE="$XDG_CONFIG_HOME/cosmic/com.system76.CosmicComp/v1/tiling_engine"
+MODE_FILE="$HOME/Projects-flow-32gb/cosmic_scrolling_prototype/.cosmic-scrolling/session-config/cosmic/com.system76.CosmicComp/v1/tiling_engine"
 set_tiling_mode() {
     case "$1" in
         Classic|Scrolling) printf '%s\n' "$1" >"$MODE_FILE" ;;
@@ -135,12 +123,10 @@ set_tiling_mode() {
 }
 ```
 
-Then use:
-
-```bash
-set_tiling_mode Scrolling
-set_tiling_mode Classic
-```
+Then switch immediately with `set_tiling_mode Scrolling` or
+`set_tiling_mode Classic`. For a standalone checkout without the parent
+suite, use `target/scrolling-test-config` instead of
+`.cosmic-scrolling/session-config` in the path above.
 
 Values are case-sensitive and must be exactly `Classic` or `Scrolling`. The
 running compositor watches this setting, so logging out or restarting it is not

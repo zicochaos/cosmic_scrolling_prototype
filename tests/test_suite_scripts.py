@@ -39,11 +39,14 @@ class SuiteScripts(unittest.TestCase):
         (self.state / 'manifest').write_text('owner=cosmic-scrolling-prototype-v1\n')
         (self.state / 'session-config').mkdir()
         (self.state / 'session-config/keep').write_text('session settings')
+        self.session_bin = self.state / 'session-bin'
+        self.session_bin.mkdir()
+        (self.session_bin / 'cosmic-comp').write_text('#!/bin/sh wrapper\n')
         (self.state / 'cache').write_text('retained build')
         self.suite_config = self.state / 'session-config'
         self.env = dict(os.environ)
         self.env.pop('DESTDIR', None)
-        self.env.pop('XDG_CONFIG_HOME', None)
+        self.env.pop('COSMIC_SCROLLING_SESSION', None)
         mock = self.root / 'mock-bin'
         mock.mkdir()
         sudo = mock / 'sudo'
@@ -71,6 +74,7 @@ class SuiteScripts(unittest.TestCase):
         self.assertTrue(self.suite_config.exists())
         self.assertTrue((self.state / 'manifest').exists())
         self.assertTrue(self.config.exists())
+        self.assertTrue(self.session_bin.exists())
 
     def test_uninstall_is_idempotent_and_preserves_normal_session_cache_and_config(self):
         self.uninstall()
@@ -78,6 +82,7 @@ class SuiteScripts(unittest.TestCase):
         self.assertFalse(self.launcher.is_symlink())
         self.assertFalse(self.desktop.exists())
         self.assertFalse((self.state / 'manifest').exists())
+        self.assertFalse(self.session_bin.exists())
         self.assertEqual(self.normal.read_text(), 'distribution session')
         self.assertEqual((self.state / 'cache').read_text(), 'retained build')
         self.assertEqual((self.config / 'keep').read_text(), 'settings')
@@ -86,6 +91,7 @@ class SuiteScripts(unittest.TestCase):
         self.uninstall('--purge-config')
         self.assertFalse(self.config.exists())
         self.assertFalse(self.suite_config.exists())
+        self.assertFalse(self.session_bin.exists())
         self.assertTrue((self.comp / 'target/debug/cosmic-comp').exists())
         self.assertTrue((self.state / 'cache').exists())
         self.assertTrue(self.normal.exists())
@@ -126,6 +132,11 @@ class SuiteScripts(unittest.TestCase):
     def test_active_session_is_refused_for_suite_config_location(self):
         self.uninstall('--purge-config', code=1,
                        env=dict(self.env, XDG_CONFIG_HOME=str(self.suite_config)))
+        self.assert_untouched()
+
+    def test_active_session_marker_is_refused_before_removal(self):
+        self.uninstall('--purge-config', code=1,
+                       env=dict(self.env, COSMIC_SCROLLING_SESSION='1'))
         self.assert_untouched()
 
     def test_invalid_profile_is_rejected_before_any_work(self):
