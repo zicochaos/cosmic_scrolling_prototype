@@ -3411,10 +3411,18 @@ mod tests {
 
             // Simulate an interrupt that loses the model viewport and
             // prefers a focused tile in a non-zero column: only the visual
-            // tree still represents the viewport.
+            // tree still represents the viewport. The first tile's geometry
+            // is staled so a fallback to model order (instead of the
+            // focused preference) recovers a visibly wrong viewport.
+            let mut interrupted = tree.copy_clone();
+            if let Ok(node) = interrupted.get_mut(&ids[0])
+                && let Data::Placeholder { last_geometry, .. } = node.data_mut()
+            {
+                last_geometry.loc.x += 300;
+            }
             scrolling.model.focused = Some(ids[1].clone());
             scrolling.model.viewport_x = 0.0;
-            assert!(scrolling.sync_viewport_from_tree(&output, &tree, (4, 8)));
+            assert!(scrolling.sync_viewport_from_tree(&output, &interrupted, (4, 8)));
             assert!(
                 (scrolling.model.viewport_x - written).abs() <= 0.5,
                 "cycle {cycle}: recovered {} from written {}",
