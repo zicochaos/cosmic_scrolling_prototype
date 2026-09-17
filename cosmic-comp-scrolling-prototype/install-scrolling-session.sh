@@ -41,7 +41,11 @@ if [ -f "$SUITE_MANIFEST" ]; then
     esac
 fi
 if [ ! -x "$PROJECT_ROOT/target/$COMPOSITOR_PROFILE/cosmic-comp" ]; then
-    echo "Build the compositor first: cd \"$PROJECT_ROOT\" && cargo build --locked --profile $COMPOSITOR_PROFILE" >&2
+    COMPOSITOR_PROFILE_ARG=""
+    if [ "$COMPOSITOR_PROFILE" = fastdebug ]; then
+        COMPOSITOR_PROFILE_ARG="--profile $COMPOSITOR_PROFILE"
+    fi
+    echo "Build the compositor first: cd \"$PROJECT_ROOT\" && cargo build --locked $COMPOSITOR_PROFILE_ARG" >&2
     exit 1
 fi
 if [ ! -x "$PROJECT_ROOT/start-scrolling-session.sh" ]; then
