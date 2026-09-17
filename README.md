@@ -20,6 +20,67 @@ This project installs a separate **COSMIC Scrolling Test** login session using:
 It does not replace the normal COSMIC compositor, applet, login session, or
 panel configuration.
 
+## Fixes in this fork
+
+This fork carries the following fixes over upstream
+`miguel-das/cosmic_scrolling_prototype`. Each landed as a separately tested
+commit; the review order is preserved on the `fix/review-findings` branch.
+
+### Compositor (Scrolling engine)
+
+- **Fixed a crash when grabbing a freshly mapped window.** Map, remap,
+  orientation and window-transfer pushes in Scrolling mode now go through
+  retargetable animation trees, so an in-flight animation can no longer queue
+  a newer tree behind the visual source whose nodes an interrupt would
+  silently drop. The grab path also falls back to a floating grab when a node
+  is missing instead of panicking.
+- **No-op pans no longer interrupt animations.** A three-finger pan that is
+  fully clamped at the strip edge (or hits a single centered tile) used to
+  collapse an unrelated pending animation mid-transition; the pan is now
+  previewed against the model before the animation queue is touched.
+- **The viewport stays inside the strip when it shrinks.** Closing edge
+  columns during a drag previously left the viewport past the new strip
+  bounds until the next focus change; preserving updates now re-clamp
+  user-positioned viewports. Centered viewports are exempt, so a zero-motion
+  grab-release keeps a lone column centered.
+- New tests cover the queue-interrupt semantics, the viewport sync
+  round-trip (non-zero gaps, focused tile, fractional pans, half-pixel
+  bound), no-op pan behavior, and the left-neighbor tile merge.
+
+### Window Layout applet
+
+- **Deferred layout changes target the clicked workspace.** The per-workspace
+  tiling request is now sent to the workspace captured at click time instead
+  of whichever workspace is active when the asynchronous `tiling_engine`
+  write completes. The segmented control also waits for the first workspace
+  update before accepting clicks.
+- Polish translations for the new layout strings and a grammar fix for
+  `per-workspace`.
+- The `parallel-test-install` feature ships its icon set in `data/icons`.
+
+### Installer and session scripts
+
+- The compositor's embedded test suite runs during installation (both normal
+  and `--build-only` modes).
+- `SCROLLING_PROFILE=fastdebug ./install.sh` builds an optimized compositor
+  (release with debug symbols). The profile is recorded in the ownership
+  manifest and honored by the session launcher, session installer, PATH, and
+  build hints.
+- The test session's isolated settings live in
+  `.cosmic-scrolling/session-config` so `cargo clean` cannot delete them;
+  `uninstall.sh --purge-config` removes both the new and the legacy
+  location.
+- The workspace-manifest rewrite tolerates whitespace variants, multi-line
+  `default-members`, and inline-closing member lists, and fails loudly on an
+  unterminated member list.
+
+### Verification
+
+Every commit passes `cargo test` (102 tests) and both Python script suites
+(17 and 22 tests) individually, and `./install.sh --build-only` exercises the
+full assembled applet workspace. Each fix was also reviewed by an
+independent verification pass before landing.
+
 ## Build dependencies
 
 Install the native libraries this compositor links against (from
