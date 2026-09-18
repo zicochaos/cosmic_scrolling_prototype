@@ -66,6 +66,13 @@ impl Default for AppearanceConfig {
     }
 }
 
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DecorationPreference {
+    #[default]
+    ClientSide,
+    ServerSide,
+}
+
 /// Selects the layout engine used when a workspace has tiling enabled.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub enum TilingEngine {
@@ -128,6 +135,7 @@ pub struct CosmicCompConfig {
     /// Briefly magnify the cursor when the pointer is shaken, to help locate it
     pub cursor_shake_to_find: bool,
     pub activation_policy: ActivationPolicy,
+    pub decoration_preference: DecorationPreference,
 }
 
 impl Default for CosmicCompConfig {
@@ -168,6 +176,7 @@ impl Default for CosmicCompConfig {
             cursor_hide_timeout: None,
             cursor_shake_to_find: true,
             activation_policy: ActivationPolicy::default(),
+            decoration_preference: DecorationPreference::default(),
         }
     }
 }

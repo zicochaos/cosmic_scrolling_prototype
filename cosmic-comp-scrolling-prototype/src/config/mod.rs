@@ -18,8 +18,11 @@ use cosmic_config::{ConfigGet, CosmicConfigEntry};
 use cosmic_settings_config::window_rules::ApplicationException;
 use cosmic_settings_config::{Shortcuts, shortcuts, window_rules};
 use serde::{Deserialize, Serialize};
-use smithay::utils::{Clock, Monotonic};
 use smithay::wayland::xdg_activation::XdgActivationState;
+use smithay::{
+    backend::input::InputTime,
+    utils::{Clock, Monotonic},
+};
 pub use smithay::{
     backend::input::{self as smithay_input, KeyState},
     input::keyboard::{Keysym, ModifiersState, keysyms as KeySyms},
@@ -50,8 +53,8 @@ mod types;
 use cosmic::config::CosmicTk;
 pub use cosmic_comp_config::EdidProduct;
 use cosmic_comp_config::{
-    ActivationPolicy, AppearanceConfig, CosmicCompConfig, KeyboardConfig, TileBehavior,
-    TilingEngine, XkbConfig, XwaylandDescaling, XwaylandEavesdropping, ZoomConfig,
+    ActivationPolicy, AppearanceConfig, CosmicCompConfig, DecorationPreference, KeyboardConfig,
+    TileBehavior, TilingEngine, XkbConfig, XwaylandDescaling, XwaylandEavesdropping, ZoomConfig,
     input::{DeviceState as InputDeviceState, InputConfig, TouchpadOverride},
     output::comp::{
         OutputConfig, OutputInfo, OutputState, OutputsConfig, TransformDef, load_outputs,
@@ -558,7 +561,13 @@ impl Config {
                     primary.config_mut().xwayland_primary = true;
                 }
             }
-            for output in outputs.iter().filter(|o| o.mirroring().is_none()) {
+            // sort by connector name for a deterministic layout independent of hotplug order
+            let mut sorted_outputs = outputs
+                .iter()
+                .filter(|o| o.mirroring().is_none())
+                .collect::<Vec<_>>();
+            sorted_outputs.sort_by_key(|o| o.name());
+            for output in sorted_outputs {
                 {
                     let mut config = output.config_mut();
                     config.position = (w, 0);
@@ -808,7 +817,7 @@ fn quiesce_tiling_engine_interactions(state: &mut State) {
             pointer.unset_grab(
                 state,
                 SERIAL_COUNTER.next_serial(),
-                state.common.clock.now().as_millis(),
+                InputTime::now(),
             );
         }
 
@@ -840,13 +849,12 @@ pub fn change_modifier_state(
     const X11_KEYCODE_OFFSET: u32 = 8;
 
     let mut input = |key_state, scan_code| {
-        let time = state.common.clock.now().as_millis();
         let _ = keyboard.input(
             state,
             smithay_input::Keycode::new(scan_code + X11_KEYCODE_OFFSET),
             key_state,
             SERIAL_COUNTER.next_serial(),
-            time,
+            InputTime::now(),
             |_, _, _| smithay::input::keyboard::FilterResult::<()>::Forward,
         );
     };
@@ -910,7 +918,9 @@ fn config_changed(config: cosmic_config::Config, keys: Vec<String>, state: &mut 
                 }
                 if !state.common.ei_seats.is_empty() {
                     let seat = state.common.shell.read().seats.last_active().clone();
-                    state.broadcast_ei_keyboard_modifiers(&seat);
+                    if let Some(keyboard) = seat.get_keyboard() {
+                        state.broadcast_ei_keyboard_modifiers(&keyboard);
+                    }
                 }
                 state.common.config.cosmic_conf.xkb_config = value;
             }
@@ -1085,6 +1095,13 @@ fn config_changed(config: cosmic_config::Config, keys: Vec<String>, state: &mut 
                 let new = get_config::<ActivationPolicy>(&config, "activation_policy");
                 if new != state.common.config.cosmic_conf.activation_policy {
                     state.common.config.cosmic_conf.activation_policy = new;
+                }
+            }
+            "decoration_preference" => {
+                let new = get_config::<DecorationPreference>(&config, "decoration_preference");
+                if new != state.common.config.cosmic_conf.decoration_preference {
+                    state.common.config.cosmic_conf.decoration_preference = new;
+                    state.update_decorations();
                 }
             }
             _ => {}

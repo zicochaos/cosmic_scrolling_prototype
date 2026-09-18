@@ -9,7 +9,10 @@ use crate::{
             cosmic_modifiers_from_smithay,
         },
     },
-    input::gestures::{GestureState, ScrollingPanTarget, SwipeAction},
+    input::{
+        gestures::{GestureState, ScrollingPanTarget, SwipeAction},
+        tablet_emu::PointerEmulationGrab,
+    },
     shell::{
         SeatExt, Trigger,
         focus::{
@@ -42,19 +45,21 @@ use smithay::{
     backend::input::{
         AbsolutePositionEvent, Axis, AxisRelativeDirection, AxisSource, Device, DeviceCapability,
         GestureBeginEvent, GestureEndEvent, GesturePinchUpdateEvent as _,
-        GestureSwipeUpdateEvent as _, InputBackend, InputEvent, KeyState, PointerAxisEvent,
-        ProximityState, TabletToolButtonEvent, TabletToolEvent, TabletToolProximityEvent,
-        TabletToolTipEvent, TabletToolTipState, TouchEvent,
+        GestureSwipeUpdateEvent as _, InputBackend, InputEvent, InputTime, KeyState,
+        PointerAxisEvent, ProximityState, TabletToolButtonEvent, TabletToolEvent,
+        TabletToolProximityEvent, TabletToolTipEvent, TabletToolTipState, TouchEvent,
     },
     desktop::{PopupKeyboardGrab, WindowSurfaceType, utils::under_from_surface_tree},
     input::{
         Seat,
+        keyboard::KeyboardHandle,
         keyboard::{FilterResult, KeyboardSource, KeysymHandle, ModifiersState},
         pointer::{
-            AxisFrame, ButtonEvent, GestureHoldBeginEvent, GestureHoldEndEvent,
-            GesturePinchBeginEvent, GesturePinchEndEvent, GesturePinchUpdateEvent,
-            GestureSwipeBeginEvent, GestureSwipeEndEvent, GestureSwipeUpdateEvent, MotionEvent,
-            PointerGrab, PointerHandle, RelativeMotionEvent,
+            AxisFrame, ButtonEvent as PointerButtonEvent, Focus, GestureHoldBeginEvent,
+            GestureHoldEndEvent, GesturePinchBeginEvent, GesturePinchEndEvent,
+            GesturePinchUpdateEvent, GestureSwipeBeginEvent, GestureSwipeEndEvent,
+            GestureSwipeUpdateEvent, MotionEvent as PointerMotionEvent, PointerGrab, PointerHandle,
+            RelativeMotionEvent,
         },
         tablet::{TabletDescriptor, TabletSeatTrait, tool},
         touch::{DownEvent, MotionEvent as TouchMotionEvent, UpEvent},
@@ -87,6 +92,7 @@ use std::{
 
 pub mod actions;
 pub mod gestures;
+pub mod tablet_emu;
 
 /// Identifies the input backend instance an event came from, used to disambiguate device ids
 /// (which are only unique within a single backend instance, see
@@ -271,7 +277,7 @@ impl State {
                     trace!(?keycode, ?state, "key");
 
                     let serial = SERIAL_COUNTER.next_serial();
-                    let time = Event::time_msec(&event);
+                    let time = Event::time(&event);
                     let keyboard = seat.get_keyboard().unwrap();
                     let previous_modifiers = keyboard.modifier_state();
                     if let Some((action, pattern)) = keyboard
@@ -325,7 +331,7 @@ impl State {
             }
 
             InputEvent::PointerMotion { event, .. } => {
-                use smithay::backend::input::PointerMotionEvent;
+                use smithay::backend::input::PointerMotionEvent as _;
 
                 let shell = self.common.shell.write();
                 if let Some(seat) = shell
@@ -338,6 +344,9 @@ impl State {
                     let current_output = seat.active_output();
 
                     if self.common.config.cosmic_conf.cursor_shake_to_find
+                        && seat
+                            .get_pointer()
+                            .is_some_and(|pointer| !pointer.is_grabbed())
                         && let Some(cursor_state) =
                             seat.user_data()
                                 .get::<crate::backend::render::cursor::CursorState>()
@@ -397,7 +406,7 @@ impl State {
                         &RelativeMotionEvent {
                             delta: event.delta(),
                             delta_unaccel: event.delta_unaccel(),
-                            utime: event.time(),
+                            time: event.time(),
                         },
                     );
 
@@ -635,10 +644,10 @@ impl State {
                     ptr.motion(
                         self,
                         under,
-                        &MotionEvent {
+                        &PointerMotionEvent {
                             location: position.as_logical(),
                             serial,
-                            time: event.time_msec(),
+                            time: event.time(),
                         },
                     );
                     ptr.frame(self);
@@ -750,23 +759,33 @@ impl State {
                     ptr.motion(
                         self,
                         under,
-                        &MotionEvent {
+                        &PointerMotionEvent {
                             location: position.as_logical(),
                             serial,
-                            time: event.time_msec(),
+                            time: event.time(),
                         },
                     );
                     ptr.frame(self);
 
+                    let mut shell = self.common.shell.write();
                     // Keep the seat's active output following the pointer. Click-to-
                     // focus (PointerButton) resolves its target via
                     // `seat.active_output()`
                     let previous_output = seat.active_output();
                     if previous_output != output {
+                        for session in cursor_sessions_for_output(&shell, &previous_output) {
+                            session.set_cursor_pos(None);
+                        }
                         seat.set_active_output(&output);
                     }
 
-                    let shell = self.common.shell.read();
+                    shell.update_pointer_position(position.to_local(&output), &output);
+                    shell.update_focal_point(
+                        &seat,
+                        position,
+                        self.common.config.cosmic_conf.accessibility_zoom.view_moves,
+                    );
+
                     update_output_image_copy_cursor_position(
                         &shell,
                         &self.common.clock,
@@ -777,9 +796,8 @@ impl State {
                 }
             }
             InputEvent::PointerButton { event, .. } => {
-                use smithay::backend::input::{ButtonState, PointerButtonEvent};
+                use smithay::backend::input::{ButtonState, PointerButtonEvent as _};
 
-                //
                 let Some(seat) = self
                     .common
                     .shell
@@ -853,7 +871,7 @@ impl State {
                                 && !shortcuts_inhibited
                             {
                                 let seat_clone = seat.clone();
-                                let mouse_button = PointerButtonEvent::button(&event);
+                                let mouse_button = event.button();
 
                                 let mut supress_button = || {
                                     // If the logo is held then the pointer event is
@@ -1005,7 +1023,7 @@ impl State {
                         button,
                         event.state(),
                         serial,
-                        event.time_msec(),
+                        event.time(),
                     );
                 }
 
@@ -1013,16 +1031,16 @@ impl State {
                 if pass_event {
                     ptr.button(
                         self,
-                        &ButtonEvent {
+                        &PointerButtonEvent {
                             button,
                             state: event.state(),
                             serial,
-                            time: event.time_msec(),
+                            time: event.time(),
                         },
                     );
                     ptr.frame(self);
                 } else if event.state() == ButtonState::Released {
-                    ptr.unset_grab(self, serial, event.time_msec())
+                    ptr.unset_grab(self, serial, event.time())
                 }
             }
             InputEvent::PointerAxis { event, .. } => {
@@ -1073,7 +1091,7 @@ impl State {
                             self.update_zoom(&seat, change, event.source() == AxisSource::Wheel);
                         }
                     } else {
-                        let mut frame = AxisFrame::new(event.time_msec()).source(event.source());
+                        let mut frame = AxisFrame::new(event.time()).source(event.source());
                         let horizontal_amount = event
                             .amount(Axis::Horizontal)
                             .or_else(|| Some(event.amount_v120(Axis::Horizontal)? * 15.0 / 120.));
@@ -1156,7 +1174,7 @@ impl State {
                             self,
                             &GestureSwipeBeginEvent {
                                 serial,
-                                time: event.time_msec(),
+                                time: event.time(),
                                 fingers: event.fingers(),
                             },
                         );
@@ -1177,7 +1195,7 @@ impl State {
                     if let Some(ref mut gesture_state) = self.common.gesture_state {
                         let first_update = gesture_state.update(
                             event.delta(),
-                            Duration::from_millis(event.time_msec() as u64),
+                            Duration::from_millis(event.time().millis() as u64),
                         );
                         // Decide on action if first update
                         if first_update {
@@ -1299,7 +1317,7 @@ impl State {
                         pointer.gesture_swipe_update(
                             self,
                             &GestureSwipeUpdateEvent {
-                                time: event.time_msec(),
+                                time: event.time(),
                                 delta: event.delta(),
                             },
                         );
@@ -1352,7 +1370,7 @@ impl State {
                             self,
                             &GestureSwipeEndEvent {
                                 serial,
-                                time: event.time_msec(),
+                                time: event.time(),
                                 cancelled: event.cancelled(),
                             },
                         );
@@ -1375,7 +1393,7 @@ impl State {
                         self,
                         &GesturePinchBeginEvent {
                             serial,
-                            time: event.time_msec(),
+                            time: event.time(),
                             fingers: event.fingers(),
                         },
                     );
@@ -1395,7 +1413,7 @@ impl State {
                     pointer.gesture_pinch_update(
                         self,
                         &GesturePinchUpdateEvent {
-                            time: event.time_msec(),
+                            time: event.time(),
                             delta: event.delta(),
                             scale: event.scale(),
                             rotation: event.rotation(),
@@ -1419,7 +1437,7 @@ impl State {
                         self,
                         &GesturePinchEndEvent {
                             serial,
-                            time: event.time_msec(),
+                            time: event.time(),
                             cancelled: event.cancelled(),
                         },
                     );
@@ -1441,7 +1459,7 @@ impl State {
                         self,
                         &GestureHoldBeginEvent {
                             serial,
-                            time: event.time_msec(),
+                            time: event.time(),
                             fingers: event.fingers(),
                         },
                     );
@@ -1463,7 +1481,7 @@ impl State {
                         self,
                         &GestureHoldEndEvent {
                             serial,
-                            time: event.time_msec(),
+                            time: event.time(),
                             cancelled: event.cancelled(),
                         },
                     );
@@ -1520,7 +1538,7 @@ impl State {
                             slot: event.slot(),
                             location: position.as_logical(),
                             serial,
-                            time: event.time_msec(),
+                            time: event.time(),
                         },
                     );
                 }
@@ -1569,7 +1587,7 @@ impl State {
                         &TouchMotionEvent {
                             slot: event.slot(),
                             location: position.as_logical(),
-                            time: event.time_msec(),
+                            time: event.time(),
                         },
                     );
                 }
@@ -1595,7 +1613,7 @@ impl State {
                         self,
                         &UpEvent {
                             slot: event.slot(),
-                            time: event.time_msec(),
+                            time: event.time(),
                             serial,
                         },
                     );
@@ -1646,6 +1664,7 @@ impl State {
                         return;
                     };
 
+                    let current_output = seat.active_output();
                     let position =
                         transform_output_mapped_position(&output, &event, shell.zoom_state());
                     let under = State::surface_under(position, &output, &shell)
@@ -1654,21 +1673,33 @@ impl State {
                     std::mem::drop(shell);
 
                     let pointer = seat.get_pointer().unwrap();
-                    pointer.motion(
-                        self,
-                        under.clone(),
-                        &MotionEvent {
-                            location: position.as_logical(),
-                            serial: SERIAL_COUNTER.next_serial(),
-                            time: self.common.clock.now().as_millis(),
-                        },
-                    );
+                    pointer.set_location(position.as_logical());
 
                     let tablet_seat = seat.tablet_seat();
 
                     let tool = tablet_seat.get_tool(&event.tool());
 
                     if let Some(tool) = tool {
+                        let serial = SERIAL_COUNTER.next_serial();
+                        if !tool.is_grabbed()
+                            && under
+                                .as_ref()
+                                .is_some_and(|(target, _)| !target.supports_tool(&tool))
+                        {
+                            let start_data = tool::GrabStartData {
+                                focus: under.clone(),
+                                trigger: tool::GrabTrigger::Proximity,
+                                location: position.as_logical(),
+                            };
+                            tool.set_grab(
+                                self,
+                                PointerEmulationGrab::new(start_data, seat.clone()),
+                                event.time(),
+                                serial,
+                                Focus::Keep,
+                            );
+                        }
+
                         let frame = tool::AxisFrame {
                             pressure: event.pressure_has_changed().then(|| event.pressure()),
                             distance: event.distance_has_changed().then(|| event.distance()),
@@ -1686,17 +1717,39 @@ impl State {
 
                         tool.motion(
                             self,
-                            under
-                                .and_then(|(f, loc)| f.wl_surface().map(|s| (s.into_owned(), loc))),
+                            under,
                             &tool::MotionEvent {
                                 location: position.as_logical(),
-                                serial: SERIAL_COUNTER.next_serial(),
-                                time: event.time_msec(),
+                                serial,
+                                time: event.time(),
                             },
                         );
 
-                        tool.frame(self, event.time_msec());
+                        tool.frame(self, event.time());
                     }
+
+                    let mut shell = self.common.shell.write();
+                    shell.update_pointer_position(position.to_local(&output), &output);
+                    shell.update_focal_point(
+                        &seat,
+                        position,
+                        self.common.config.cosmic_conf.accessibility_zoom.view_moves,
+                    );
+
+                    if output != current_output {
+                        for session in cursor_sessions_for_output(&shell, &current_output) {
+                            session.set_cursor_pos(None);
+                        }
+                        seat.set_active_output(&output);
+                    }
+
+                    update_output_image_copy_cursor_position(
+                        &shell,
+                        &self.common.clock,
+                        &output,
+                        &seat,
+                        position,
+                    );
                 }
             }
             InputEvent::TabletToolProximity { event, .. } => {
@@ -1715,6 +1768,7 @@ impl State {
                         return;
                     };
 
+                    let current_output = seat.active_output();
                     let position =
                         transform_output_mapped_position(&output, &event, shell.zoom_state());
                     let under = State::surface_under(position, &output, &shell)
@@ -1723,15 +1777,7 @@ impl State {
                     std::mem::drop(shell);
 
                     let pointer = seat.get_pointer().unwrap();
-                    pointer.motion(
-                        self,
-                        under.clone(),
-                        &MotionEvent {
-                            location: position.as_logical(),
-                            serial: SERIAL_COUNTER.next_serial(),
-                            time: self.common.clock.now().as_millis(),
-                        },
-                    );
+                    pointer.set_location(position.as_logical());
 
                     let tablet_seat = seat.tablet_seat();
 
@@ -1743,6 +1789,25 @@ impl State {
 
                     if let Some(tablet) = tablet {
                         let serial = SERIAL_COUNTER.next_serial();
+
+                        if !tool.is_grabbed()
+                            && under
+                                .as_ref()
+                                .is_some_and(|(target, _)| !target.supports_tool(&tool))
+                        {
+                            let start_data = tool::GrabStartData {
+                                focus: under.clone(),
+                                trigger: tool::GrabTrigger::Proximity,
+                                location: position.as_logical(),
+                            };
+                            tool.set_grab(
+                                self,
+                                PointerEmulationGrab::new(start_data, seat.clone()),
+                                event.time(),
+                                serial,
+                                Focus::Keep,
+                            );
+                        }
 
                         let frame = tool::AxisFrame {
                             pressure: event.pressure_has_changed().then(|| event.pressure()),
@@ -1759,9 +1824,6 @@ impl State {
 
                         match event.state() {
                             ProximityState::In => {
-                                let under = under.and_then(|(f, loc)| {
-                                    f.wl_surface().map(|s| (s.into_owned(), loc))
-                                });
                                 tool.proximity_in(
                                     self,
                                     under,
@@ -1769,25 +1831,75 @@ impl State {
                                     &tool::ProximityInEvent {
                                         location: position.as_logical(),
                                         axis: Some(frame),
-                                        serial: SERIAL_COUNTER.next_serial(),
-                                        time: event.time_msec(),
+                                        serial,
+                                        time: event.time(),
                                     },
-                                )
+                                );
                             }
-                            ProximityState::Out => tool.proximity_out(
-                                self,
-                                &tool::ProximityOutEvent {
-                                    serial,
-                                    time: event.time_msec(),
-                                },
-                            ),
+                            ProximityState::Out => {
+                                tool.proximity_out(
+                                    self,
+                                    &tool::ProximityOutEvent {
+                                        serial,
+                                        time: event.time(),
+                                    },
+                                );
+                                if let Some(pointer) = seat.get_pointer() {
+                                    pointer.motion(
+                                        self,
+                                        None,
+                                        &PointerMotionEvent {
+                                            location: position.as_logical(),
+                                            serial,
+                                            time: event.time(),
+                                        },
+                                    );
+                                }
+                            }
                         }
 
-                        tool.frame(self, event.time_msec());
+                        tool.frame(self, event.time());
+                    }
+
+                    if event.state() == ProximityState::In {
+                        let mut shell = self.common.shell.write();
+                        shell.update_pointer_position(position.to_local(&output), &output);
+                        shell.update_focal_point(
+                            &seat,
+                            position,
+                            self.common.config.cosmic_conf.accessibility_zoom.view_moves,
+                        );
+
+                        if output != current_output {
+                            for session in cursor_sessions_for_output(&shell, &current_output) {
+                                session.set_cursor_pos(None);
+                            }
+                            seat.set_active_output(&output);
+                        }
+
+                        update_output_image_copy_cursor_position(
+                            &shell,
+                            &self.common.clock,
+                            &output,
+                            &seat,
+                            position,
+                        );
                     }
                 }
             }
             InputEvent::TabletToolTip { event, .. } => {
+                {
+                    let mut shell = self.common.shell.write();
+                    if let Some(Trigger::Tool(desc, trigger)) =
+                        shell.overview_mode().0.active_trigger()
+                        && event.tool() == *desc
+                        && matches!(*trigger, tool::GrabTrigger::Tip)
+                        && event.tip_state() == TabletToolTipState::Up
+                    {
+                        shell.set_overview_mode(None, self.common.event_loop_handle.clone());
+                    }
+                }
+
                 let maybe_seat = self
                     .common
                     .shell
@@ -1798,6 +1910,21 @@ impl State {
                 if let Some(seat) = maybe_seat {
                     self.common.idle_notifier_state.notify_activity(&seat);
                     notify_cursor_activity(self, &seat);
+
+                    let serial = SERIAL_COUNTER.next_serial();
+                    let output = seat.active_output();
+                    let shell = self.common.shell.write();
+                    let position =
+                        transform_output_mapped_position(&output, &event, shell.zoom_state());
+                    let under = State::element_under(position, &output, &shell, &seat);
+                    drop(shell);
+
+                    if event.tip_state() == TabletToolTipState::Down
+                        && let Some(target) = under.as_ref()
+                    {
+                        Shell::set_focus(self, Some(target), &seat, Some(serial), false);
+                    }
+
                     if let Some(tool) = seat.tablet_seat().get_tool(&event.tool()) {
                         let serial = SERIAL_COUNTER.next_serial();
                         match event.tip_state() {
@@ -1806,7 +1933,7 @@ impl State {
                                     self,
                                     &tool::DownEvent {
                                         serial,
-                                        time: event.time_msec(),
+                                        time: event.time(),
                                     },
                                 );
                             }
@@ -1815,13 +1942,13 @@ impl State {
                                     self,
                                     &tool::UpEvent {
                                         serial,
-                                        time: event.time_msec(),
+                                        time: event.time(),
                                     },
                                 );
                             }
                         }
 
-                        tool.frame(self, event.time_msec());
+                        tool.frame(self, event.time());
                     }
                 }
             }
@@ -1843,11 +1970,11 @@ impl State {
                                 button: event.button(),
                                 state: event.button_state(),
                                 serial: SERIAL_COUNTER.next_serial(),
-                                time: event.time_msec(),
+                                time: event.time(),
                             },
                         );
 
-                        tool.frame(self, event.time_msec());
+                        tool.frame(self, event.time());
                     }
                 }
             }
@@ -1950,7 +2077,7 @@ impl State {
         let Some(pointer) = seat.get_pointer() else {
             return;
         };
-        let time = self.common.clock.now().as_millis();
+        let time = InputTime::now();
         for button in buttons {
             let serial = SERIAL_COUNTER.next_serial();
             pointer.button(
@@ -1968,13 +2095,7 @@ impl State {
 
     /// Mirror the seat's current modifier state to every libei sender with a keyboard via
     /// `ei_keyboard.modifiers`
-    pub(crate) fn broadcast_ei_keyboard_modifiers(&self, seat: &Seat<State>) {
-        if self.common.ei_seats.is_empty() {
-            return;
-        }
-        let Some(keyboard) = seat.get_keyboard() else {
-            return;
-        };
+    pub(crate) fn broadcast_ei_keyboard_modifiers(&self, keyboard: &KeyboardHandle<State>) {
         let s = keyboard.modifier_state().serialized;
         for ei_seat in self.common.ei_seats.values() {
             ei_seat.keyboard_modifiers(s.depressed, s.locked, s.latched, s.layout_effective);
@@ -2012,14 +2133,14 @@ impl State {
         modifiers: &ModifiersState,
         handle: KeysymHandle<'_>,
         serial: Serial,
-        time: u32,
+        time: InputTime,
         keycode: Keycode,
         key_state: KeyState,
         previous_modifiers: ModifiersState,
     ) -> FilterResult<Option<(Action, shortcuts::Binding)>> {
         if previous_modifiers != *modifiers {
             seat.set_last_modifier_change(backend_id, serial);
-            self.broadcast_ei_keyboard_modifiers(seat);
+            self.broadcast_ei_keyboard_modifiers(&seat.get_keyboard().unwrap());
         }
 
         let current_focus = seat.get_keyboard().unwrap().current_focus();
@@ -2072,7 +2193,7 @@ impl State {
             return;
         };
         let serial = SERIAL_COUNTER.next_serial();
-        let time = self.common.clock.now().as_millis();
+        let time = InputTime::now();
         let previous_modifiers = keyboard.modifier_state();
         let result = keyboard
             .input_from_source(
@@ -2221,7 +2342,7 @@ impl State {
         serial: Serial,
         keycode: Keycode,
         key_state: KeyState,
-        time: u32,
+        time: InputTime,
     ) -> FilterResult<Option<(Action, shortcuts::Binding)>> {
         // Pre-compute for layout-agnostic shortcut matching
         let raw_syms = handle.raw_syms();
@@ -2386,7 +2507,9 @@ impl State {
                                     &backend_id_clone,
                                     &seat_clone,
                                     serial,
-                                    time.overflowing_add(duration as u32).0,
+                                    InputTime::from_millis(
+                                        time.millis().overflowing_add(duration as u32).0,
+                                    ),
                                     key_pattern_clone.clone(),
                                     None,
                                 );
@@ -2438,7 +2561,7 @@ impl State {
                     self.common.event_loop_handle.insert_idle(move |state| {
                         if let Some(keyboard) = seat.get_keyboard() {
                             let serial = SERIAL_COUNTER.next_serial();
-                            let time = state.common.clock.now().as_millis();
+                            let time = InputTime::now();
                             keyboard.input(
                                 state,
                                 key_code,
@@ -2989,6 +3112,7 @@ impl State {
         surface: &WlSurface,
         pointer: &PointerHandle<Self>,
         mut location: Point<f64, Logical>,
+        constraint: Option<&PointerConstraint>,
     ) {
         let Some(client) = surface.client() else {
             return;
@@ -3013,15 +3137,13 @@ impl State {
                         return false;
                     }
 
-                    with_pointer_constraint(surface, pointer, |constraint| {
-                        if let Some(constraint) = constraint
-                            && let Some(region) = constraint.region()
-                        {
-                            let point_in_surface = (p - surface_offset.to_f64()).to_i32_floor();
-                            return region.contains(point_in_surface);
-                        }
-                        true
-                    })
+                    if let Some(constraint) = constraint
+                        && let Some(region) = constraint.region()
+                    {
+                        let point_in_surface = (p - surface_offset.to_f64()).to_i32_floor();
+                        return region.contains(point_in_surface);
+                    }
+                    true
                 };
 
                 let workspace_origin = output.geometry().loc.to_f64();
@@ -3045,23 +3167,23 @@ impl State {
             let serial = SERIAL_COUNTER.next_serial();
             let under = State::surface_under(point, &output, &self.common.shell.write())
                 .map(|(target, pos)| (target, pos.as_logical()));
-            let time = self.common.clock.now();
+            let time = InputTime::now();
             pointer.relative_motion(
                 self,
                 under.clone(),
                 &RelativeMotionEvent {
                     delta: (0., 0.).into(),
                     delta_unaccel: (0., 0.).into(),
-                    utime: time.as_micros(),
+                    time,
                 },
             );
             pointer.motion(
                 self,
                 under,
-                &MotionEvent {
+                &PointerMotionEvent {
                     location: point.as_logical(),
                     serial,
-                    time: time.as_millis(),
+                    time,
                 },
             );
             pointer.frame(self);
