@@ -244,6 +244,7 @@ impl TabletToolTarget<State> for ResizeForkTarget {
                     orientation,
                     output,
                     ReleaseMode::NoMouseButtons,
+                    None,
                 ),
                 time,
                 serial,
