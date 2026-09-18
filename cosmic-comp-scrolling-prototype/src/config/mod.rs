@@ -817,7 +817,7 @@ fn quiesce_tiling_engine_interactions(state: &mut State) {
             pointer.unset_grab(
                 state,
                 SERIAL_COUNTER.next_serial(),
-                state.common.clock.now().as_millis(),
+                InputTime::now(),
             );
         }
 
