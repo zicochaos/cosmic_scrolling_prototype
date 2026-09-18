@@ -1,0 +1,7 @@
+Base of the cosmic-comp-scrolling-prototype fork:
+
+    pop-os/cosmic-comp @ 8304b18 (2026-07-28)
+
+Identified by source-tree comparison; the fork's Cargo.toml and Cargo.lock
+are identical to this revision. Rebase onto a newer pop-os/cosmic-comp
+before assuming any API added after this point exists here.

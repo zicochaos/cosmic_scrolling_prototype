@@ -368,6 +368,11 @@ note "  applet:     $PREFIX/bin/cosmic-applet-tiling"
 note "  revision:   $RESOLVED_REV"
 note "  session:    $DESTDIR$SYSTEM_DESKTOP"
 note ""
+if [ "$SCROLLING_PROFILE" = debug ]; then
+    note "Built with the unoptimized debug profile. For smoother rendering:"
+    note "  SCROLLING_PROFILE=fastdebug ./install.sh"
+    note ""
+fi
 if [ -z "$DESTDIR" ]; then
     note "Log out, choose 'COSMIC Scrolling Test' in the greeter, and log in."
 else

@@ -23,8 +23,11 @@ panel configuration.
 ## Fixes in this fork
 
 This fork carries the following fixes over upstream
-`miguel-das/cosmic_scrolling_prototype`. Each landed as a separately tested
-commit; the review order is preserved on the `fix/review-findings` branch.
+`miguel-das/cosmic_scrolling_prototype`. The compositor fork tracks
+`pop-os/cosmic-comp` at the base recorded in
+`cosmic-comp-scrolling-prototype/UPSTREAM_BASE`. Each landed as a separately
+tested commit; the review order is preserved on the `fix/review-findings`
+branch.
 
 ### Compositor (Scrolling engine)
 
@@ -80,10 +83,10 @@ commit; the review order is preserved on the `fix/review-findings` branch.
 
 ### Verification
 
-Every commit passes `cargo test` (102 tests) and both Python script suites
-(17 and 22 tests) individually, and `./install.sh --build-only` exercises the
-full assembled applet workspace. Each fix was also reviewed by an
-independent verification pass before landing.
+Every commit passes `cargo test` and both Python script suites individually,
+and `./install.sh --build-only` exercises the full assembled applet
+workspace. Each fix was also reviewed by an independent verification pass
+before landing.
 
 ## Build dependencies
 
