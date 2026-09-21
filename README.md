@@ -23,11 +23,12 @@ panel configuration.
 ## Fixes in this fork
 
 This fork carries the following fixes over upstream
-`miguel-das/cosmic_scrolling_prototype`. The compositor fork tracks
-`pop-os/cosmic-comp` at the base recorded in
-`cosmic-comp-scrolling-prototype/UPSTREAM_BASE`. Each landed as a separately
-tested commit; the review order is preserved on the `fix/review-findings`
-branch.
+`miguel-das/cosmic_scrolling_prototype`, and keeps the compositor current
+with `pop-os/cosmic-comp` (currently `a557859`, 42 commits past the original
+`8304b18` base — smithay bump, tablet emulation; base recorded in
+`cosmic-comp-scrolling-prototype/UPSTREAM_BASE`). Each fix landed as a
+separately tested commit; the review order is preserved on the
+`fix/review-findings` branch.
 
 ### Compositor (Scrolling engine)
 
