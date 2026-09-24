@@ -1,11 +1,13 @@
 Base of the cosmic-comp-scrolling-prototype fork:
 
-    pop-os/cosmic-comp @ a557859 (2026-09-02)
+    pop-os/cosmic-comp @ 0fbd457 = epoch-1.9.0 (2026-09-22)
 
-Caught up from the original base 8304b18 (2026-07-28) by vendoring the
-a557859 tree and reapplying the scrolling-fork delta; the fork's semantic
-adaptations to the new APIs are the smithay InputTime change in
-src/config/mod.rs and the tablet-emulation resize call site in
-src/shell/layout/tiling/grabs/resize.rs. Cargo.toml and Cargo.lock are
-verbatim upstream. Rebase onto a newer pop-os/cosmic-comp before assuming
-any API added after this point exists here.
+Caught up from the original base 8304b18 (2026-07-28) to a557859
+(epoch-1.8.0) by vendoring that tree and reapplying the scrolling-fork
+delta; the fork's semantic adaptations to the new APIs are the smithay
+InputTime change in src/config/mod.rs and the tablet-emulation resize call
+site in src/shell/layout/tiling/grabs/resize.rs. The epoch-1.9.0 step
+applied the upstream a557859..0fbd457 diff on top without conflicts or
+further adaptations. Cargo.toml and Cargo.lock are verbatim upstream.
+Rebase onto a newer pop-os/cosmic-comp before assuming any API added after
+this point exists here.
