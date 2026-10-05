@@ -26,6 +26,9 @@ Found on two Pop!_OS 26.04 hosts (COSMIC epoch-1.9.0, fork `main` `68749ee`).
    With an empty isolated directory the session falls back to system defaults:
    custom shortcuts, window rules and the theme are lost.
 
+   The private tiling applet gets the same isolated `XDG_CONFIG_HOME` from its
+   `session-bin` wrapper, so it also loses `com.system76.CosmicTk` and the theme.
+
 2. **`com.system76.CosmicComp` is not seeded from the real config.** The
    launcher writes only `autotile` and `tiling_engine`. Real keys such as
    `xkb_config` (keyboard layout and options), `keyboard_config` (NumLock),
@@ -51,6 +54,13 @@ example `com.system76.CosmicComp.Scrolling/v1/tiling_engine`, or a separate
 `cosmic-comp` and the applet can use the real `XDG_CONFIG_HOME`, and the
 `session-bin` wrappers and `session-config` can go.
 
+This change touches the compositor and the applet together. `tiling_engine` is
+a field of `CosmicCompConfig` in the shared `cosmic-comp-config` crate
+(`cosmic-comp-config/src/lib.rs`). The applet reads it through
+`watch_config::<CosmicCompConfig>("com.system76.CosmicComp")` and writes it
+with `set("tiling_engine", ...)` (`cosmic-ext-applet-scrolling-tiling/src/window.rs`).
+Move the key in the crate, the compositor and the applet in one change.
+
 If isolation stays, `start-scrolling-session.sh` should on every launch:
 
 - symlink every `$REAL_XDG_CONFIG_HOME/cosmic/<namespace>` except
@@ -69,5 +79,6 @@ live compositor's inotify watches stayed on the old tree.
 
 - `uninstall.sh --purge-config` removes the symlinks and not their targets.
 - Custom shortcuts, theme, keyboard layout and NumLock work in the test session.
+- The tiling applet uses the user's theme and toolkit settings.
 - After logout, normal COSMIC still never reads `tiling_engine = Scrolling`.
 - Update the README sentence about which settings are isolated.
