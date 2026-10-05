@@ -30,6 +30,8 @@ lock layers; base recorded in `cosmic-comp-scrolling-prototype/UPSTREAM_BASE`). 
 separately tested commit; the review order is preserved on the
 `fix/review-findings` branch.
 
+Open work for the next sync is listed in [`SYNC-TODO.md`](SYNC-TODO.md).
+
 ### Compositor (Scrolling engine)
 
 - **Fixed a crash when grabbing a freshly mapped window.** Map, remap,
