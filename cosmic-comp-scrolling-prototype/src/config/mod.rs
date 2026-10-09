@@ -14,7 +14,7 @@ use crate::{
     },
 };
 use anyhow::Context;
-use cosmic_config::{ConfigGet, CosmicConfigEntry};
+use cosmic_config::{ConfigGet, ConfigSet, CosmicConfigEntry};
 use cosmic_settings_config::window_rules::ApplicationException;
 use cosmic_settings_config::{Shortcuts, shortcuts, window_rules};
 use serde::{Deserialize, Serialize};
@@ -53,8 +53,9 @@ mod types;
 use cosmic::config::CosmicTk;
 pub use cosmic_comp_config::EdidProduct;
 use cosmic_comp_config::{
-    ActivationPolicy, AppearanceConfig, CosmicCompConfig, DecorationPreference, KeyboardConfig,
-    TileBehavior, TilingEngine, XkbConfig, XwaylandDescaling, XwaylandEavesdropping, ZoomConfig,
+    ActivationPolicy, AppearanceConfig, CosmicCompConfig, CursorHideConfig, DecorationPreference,
+    KeyboardConfig, TileBehavior, TilingEngine, XkbConfig, XwaylandDescaling,
+    XwaylandEavesdropping, ZoomConfig,
     input::{DeviceState as InputDeviceState, InputConfig, TouchpadOverride},
     output::comp::{
         OutputConfig, OutputInfo, OutputState, OutputsConfig, TransformDef, load_outputs,
@@ -211,6 +212,18 @@ impl Config {
             cosmic_comp_config.tiling_engine,
             development_override.as_deref(),
         );
+
+        // `cursor_hide_timeout` was replaced by the grouped `cursor_hide` key.
+        // Seed the new key once so configs hand-edited before the rename keep
+        // working; the old file is left in place so a downgrade still reads it.
+        if config.get::<CursorHideConfig>("cursor_hide").is_err()
+            && let Ok(legacy) = config.get::<Option<u32>>("cursor_hide_timeout")
+        {
+            cosmic_comp_config.cursor_hide.idle_timeout = legacy;
+            if let Err(err) = config.set("cursor_hide", cosmic_comp_config.cursor_hide) {
+                warn!(?err, "Failed to migrate cursor_hide_timeout to cursor_hide");
+            }
+        }
 
         // Listen for updates to the toolkit config
         if let Ok(tk_config) = cosmic_config::Config::new("com.system76.CosmicTk", 1) {
@@ -1080,15 +1093,21 @@ fn config_changed(config: cosmic_config::Config, keys: Vec<String>, state: &mut 
                 let new = get_config::<bool>(&config, "cursor_shake_to_find");
                 state.common.config.cosmic_conf.cursor_shake_to_find = new;
             }
-            "cursor_hide_timeout" => {
-                let new = get_config::<Option<u32>>(&config, "cursor_hide_timeout");
-                if new != state.common.config.cosmic_conf.cursor_hide_timeout {
-                    state.common.config.cosmic_conf.cursor_hide_timeout = new;
+            "cursor_hide" => {
+                let new = get_config::<CursorHideConfig>(&config, "cursor_hide");
+                if new != state.common.config.cosmic_conf.cursor_hide {
+                    state.common.config.cosmic_conf.cursor_hide = new;
+                    // Reveal on every change: a visible cursor is the safe state,
+                    // and it avoids stranding a hidden cursor when the trigger
+                    // that hid it is switched off.
                     let seats: Vec<_> = state.common.shell.read().seats.iter().cloned().collect();
                     let mut needs_render = false;
                     for seat in seats {
-                        needs_render |=
-                            crate::backend::render::cursor::notify_cursor_activity(state, &seat);
+                        needs_render |= crate::backend::render::cursor::notify_cursor_activity(
+                            state,
+                            &seat,
+                            crate::backend::render::cursor::PointerEventKind::Motion,
+                        );
                     }
                     if needs_render {
                         let outputs: Vec<_> =
