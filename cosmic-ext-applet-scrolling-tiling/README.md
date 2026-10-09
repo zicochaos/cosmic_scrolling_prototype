@@ -74,9 +74,9 @@ rm -f ~/.local/share/icons/hicolor/scalable/apps/com.system76.CosmicAppletWindow
 Run the applet with the modified compositor, then verify:
 
 1. **Floating** makes only the active workspace floating and does not change
-   the `tiling_engine` configuration value.
+   the `scrolling_tiling_engine` configuration value.
 2. **Tiling** enables tiling on the active workspace and writes `Classic` to
-   `com.system76.CosmicComp`'s `tiling_engine` entry.
+   `com.system76.CosmicComp`'s `scrolling_tiling_engine` entry.
 3. **Scrolling** enables tiling on the active workspace and writes `Scrolling`
    to that same global entry.
 4. Moving between workspaces updates the selector from each workspace's tiling
