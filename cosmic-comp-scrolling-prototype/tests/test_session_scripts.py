@@ -34,6 +34,8 @@ class SessionScripts(unittest.TestCase):
                      'COSMIC_SCROLLING_SESSION', 'XDG_CONFIG_HOME', 'RUST_LOG'):
             self.env.pop(name, None)
         self.env['PATH'] = str(self.bin) + os.pathsep + os.defpath
+        # The launcher writes to the user's configuration; keep it in the sandbox.
+        self.env['HOME'] = str(self.root / 'home')
         self.env['SESSION_TEST_LOG'] = str(self.root / 'calls.jsonl')
         self.executable(self.bin / 'sudo', '#!/bin/sh\necho "UNEXPECTED SUDO" >&2\nexit 99\n')
         self.executable(self.bin / 'start-cosmic', '''#!/usr/bin/python3
@@ -65,6 +67,10 @@ with open(os.environ['SESSION_TEST_LOG'], 'a') as f:
 
     def calls(self):
         return [json.loads(line) for line in (self.root / 'calls.jsonl').read_text().splitlines()]
+
+    @property
+    def comp_config(self):
+        return self.root / 'home/.config/cosmic/com.system76.CosmicComp/v1'
 
     @property
     def launcher(self):
@@ -149,20 +155,17 @@ with open(os.environ['SESSION_TEST_LOG'], 'a') as f:
         self.assertEqual(result.returncode, 0, result.stderr)
         session = self.calls()[0]
         env = session['env']
-        session_bin = self.clone / 'target/scrolling-session-bin'
         self.assertEqual(session['session'], ['--in-login-shell'])
-        self.assertEqual(env['PATH'].split(os.pathsep)[:2],
-                         [str(session_bin), str(self.clone / 'target/debug')])
-        # The session shares the user's real configuration; only the wrapped
-        # compositor sees the isolated settings.
+        self.assertEqual(env['PATH'].split(os.pathsep)[0], str(self.clone / 'target/debug'))
+        # The whole session, compositor included, shares the user's configuration.
         self.assertNotIn('XDG_CONFIG_HOME', env)
-        wrapper = (session_bin / 'cosmic-comp').read_text()
-        self.assertIn(
-            "XDG_CONFIG_HOME='%s'" % (self.clone / 'target/scrolling-test-config'), wrapper)
-        self.assertIn("exec '%s'" % (self.clone / 'target/debug/cosmic-comp'), wrapper)
-        config = self.clone / 'target/scrolling-test-config/cosmic/com.system76.CosmicComp/v1'
-        self.assertEqual((config / 'autotile').read_text(), 'true\n')
-        self.assertEqual((config / 'tiling_engine').read_text(), 'Scrolling\n')
+        self.assertEqual(
+            (self.comp_config / 'scrolling_tiling_engine').read_text(), 'Scrolling\n')
+        # Shared compositor keys are left to the user.
+        self.assertEqual(sorted(p.name for p in self.comp_config.iterdir()),
+                         ['scrolling_tiling_engine'])
+        for name in ('scrolling-session-bin', 'scrolling-test-config'):
+            self.assertFalse((self.clone / 'target' / name).exists())
         cleanup = [c['systemctl'] for c in self.calls()[1:]]
         self.assertIn(['--user', 'set-environment', 'PATH=' + self.env['PATH']], cleanup)
         for name in ('RUST_LOG', 'COSMIC_SCROLLING_TILING', 'COSMIC_SCROLLING_SESSION'):
@@ -175,20 +178,21 @@ with open(os.environ['SESSION_TEST_LOG'], 'a') as f:
         result = subprocess.run([str(self.launcher)], env=env, text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         session_env = self.calls()[0]['env']
-        # Isolation lives only inside the cosmic-comp wrapper; the session
-        # itself keeps the user's XDG_CONFIG_HOME untouched.
         self.assertEqual(session_env.get('XDG_CONFIG_HOME'), str(user_config))
+        engine = user_config / 'cosmic/com.system76.CosmicComp/v1/scrolling_tiling_engine'
+        self.assertEqual(engine.read_text(), 'Scrolling\n')
+        self.assertFalse(self.comp_config.exists())
 
     def test_launcher_preserves_config_and_restores_set_values_after_failure(self):
-        config = self.clone / 'target/scrolling-test-config/cosmic/com.system76.CosmicComp/v1'
+        config = self.comp_config
         config.mkdir(parents=True)
         (config / 'autotile').write_text('false\n')
-        (config / 'tiling_engine').write_text('Classic\n')
+        (config / 'scrolling_tiling_engine').write_text('Classic\n')
         old = dict(RUST_LOG='', COSMIC_SCROLLING_TILING='no', COSMIC_SCROLLING_SESSION='previous')
         env = dict(self.env, **old, SESSION_TEST_EXIT='7')
         self.run_script('start-scrolling-session.sh', env=env, code=7)
         self.assertEqual((config / 'autotile').read_text(), 'false\n')
-        self.assertEqual((config / 'tiling_engine').read_text(), 'Classic\n')
+        self.assertEqual((config / 'scrolling_tiling_engine').read_text(), 'Classic\n')
         cleanup = [c['systemctl'] for c in self.calls()[1:]]
         for name, value in old.items():
             self.assertIn(['--user', 'set-environment', name + '=' + value], cleanup)
@@ -197,8 +201,7 @@ with open(os.environ['SESSION_TEST_LOG'], 'a') as f:
         for name in ('DISPLAY', 'WAYLAND_DISPLAY'):
             self.run_script('start-scrolling-session.sh', env=dict(self.env, **{name: 'test'}), code=1)
         self.assertFalse((self.root / 'calls.jsonl').exists())
-        self.assertFalse((self.clone / 'target/scrolling-test-config').exists())
-        self.assertFalse((self.clone / 'target/scrolling-session-bin').exists())
+        self.assertFalse(self.comp_config.exists())
 
     def private_applet(self):
         state = self.clone.parent / '.cosmic-scrolling'
@@ -214,14 +217,10 @@ with open(os.environ['SESSION_TEST_LOG'], 'a') as f:
         env = dict(self.env, XDG_DATA_DIRS='/custom/share:/usr/share')
         self.run_script('start-scrolling-session.sh', env=env)
         session = self.calls()[0]['env']
-        session_bin = state / 'session-bin'
         self.assertEqual(session['PATH'].split(os.pathsep)[:2],
-                         [str(session_bin), str(state / 'prefix/bin')])
-        for name in ('cosmic-comp', 'cosmic-applet-tiling'):
-            self.assertTrue((session_bin / name).exists())
-        applet_wrapper = (session_bin / 'cosmic-applet-tiling').read_text()
-        self.assertIn(
-            "exec '%s'" % (state / 'prefix/bin/cosmic-applet-tiling'), applet_wrapper)
+                         [str(state / 'prefix/bin'), str(self.clone / 'target/debug')])
+        self.assertNotIn('XDG_CONFIG_HOME', session)
+        self.assertFalse((state / 'session-bin').exists())
         self.assertEqual(session['XDG_DATA_DIRS'], str(state / 'prefix/share') + ':' + env['XDG_DATA_DIRS'])
         self.assertIn({'systemctl': ['--user', 'set-environment', 'XDG_DATA_DIRS=' + env['XDG_DATA_DIRS']]}, self.calls())
 
@@ -233,23 +232,18 @@ with open(os.environ['SESSION_TEST_LOG'], 'a') as f:
         self.assertEqual(self.calls()[0]['env']['XDG_DATA_DIRS'], str(state / 'prefix/share') + ':/usr/local/share:/usr/share')
         self.assertIn({'systemctl': ['--user', 'unset-environment', 'XDG_DATA_DIRS']}, self.calls())
 
-    def test_suite_profile_selects_recorded_compositor_and_suite_config(self):
+    def test_suite_profile_selects_recorded_compositor_and_shared_config(self):
         state = self.private_applet()
         (state / 'manifest').write_text('owner=cosmic-scrolling-prototype-v1\nprofile=fastdebug\n')
         self.executable(self.clone / 'target/fastdebug/cosmic-comp', '#!/bin/sh\nexit 0\n')
         self.run_script('start-scrolling-session.sh')
         env = self.calls()[0]['env']
-        self.assertEqual(env['PATH'].split(os.pathsep)[:3],
-                         [str(state / 'session-bin'), str(state / 'prefix/bin'),
-                          str(self.clone / 'target/fastdebug')])
+        self.assertEqual(env['PATH'].split(os.pathsep)[:2],
+                         [str(state / 'prefix/bin'), str(self.clone / 'target/fastdebug')])
         self.assertNotIn('XDG_CONFIG_HOME', env)
-        wrapper = (state / 'session-bin/cosmic-comp').read_text()
-        self.assertIn("XDG_CONFIG_HOME='%s'" % (state / 'session-config'), wrapper)
-        self.assertIn("exec '%s'" % (self.clone / 'target/fastdebug/cosmic-comp'), wrapper)
-        config = state / 'session-config/cosmic/com.system76.CosmicComp/v1'
-        self.assertEqual((config / 'autotile').read_text(), 'true\n')
-        self.assertEqual((config / 'tiling_engine').read_text(), 'Scrolling\n')
-        self.assertFalse((self.clone / 'target/scrolling-test-config').exists())
+        self.assertEqual(
+            (self.comp_config / 'scrolling_tiling_engine').read_text(), 'Scrolling\n')
+        self.assertFalse((state / 'session-config').exists())
 
     def test_missing_profile_compositor_is_a_clear_error(self):
         state = self.private_applet()
@@ -258,7 +252,7 @@ with open(os.environ['SESSION_TEST_LOG'], 'a') as f:
         self.assertIn('target/fastdebug/cosmic-comp', result.stderr)
         self.assertIn('--profile fastdebug', result.stderr)
         self.assertFalse((self.root / 'calls.jsonl').exists())
-        self.assertFalse((state / 'session-config').exists())
+        self.assertFalse(self.comp_config.exists())
 
     def test_unknown_manifest_profile_falls_back_to_debug(self):
         state = self.private_applet()
@@ -266,7 +260,7 @@ with open(os.environ['SESSION_TEST_LOG'], 'a') as f:
         self.run_script('start-scrolling-session.sh')
         env = self.calls()[0]['env']
         self.assertEqual(env['PATH'].split(os.pathsep)[:2],
-                         [str(state / 'session-bin'), str(state / 'prefix/bin')])
+                         [str(state / 'prefix/bin'), str(self.clone / 'target/debug')])
         self.assertNotIn('XDG_CONFIG_HOME', env)
 
     def test_session_installer_uses_manifest_profile_binary(self):

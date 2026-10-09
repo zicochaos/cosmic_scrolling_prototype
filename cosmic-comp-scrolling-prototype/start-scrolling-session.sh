@@ -20,18 +20,10 @@ if [ -f "$APPLET_STATE/manifest" ]; then
 fi
 COMPOSITOR="$PROJECT_ROOT/target/$COMPOSITOR_PROFILE/cosmic-comp"
 
-# The suite keeps the compositor's isolated settings and the session wrappers
-# beside the private applet state, outside target/, so cargo clean cannot
-# delete a live session's files. A standalone compositor checkout keeps both
-# under its own target/ directory.
-if [ -d "$APPLET_STATE" ]; then
-    TEST_CONFIG_HOME="$APPLET_STATE/session-config"
-    SESSION_BIN="$APPLET_STATE/session-bin"
-else
-    TEST_CONFIG_HOME="$PROJECT_ROOT/target/scrolling-test-config"
-    SESSION_BIN="$PROJECT_ROOT/target/scrolling-session-bin"
-fi
-TEST_COMP_CONFIG="$TEST_CONFIG_HOME/cosmic/com.system76.CosmicComp/v1"
+# The test session shares the user's real configuration with normal COSMIC.
+# This compositor keeps its engine choice in a fork-specific key that the
+# distribution compositor and applet do not read.
+COMP_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/cosmic/com.system76.CosmicComp/v1"
 
 if [ ! -x "$COMPOSITOR" ]; then
     COMPOSITOR_PROFILE_ARG=""
@@ -52,7 +44,7 @@ fi
 # cosmic-session inside a running desktop can replace its user-manager state.
 if [ -n "${WAYLAND_DISPLAY-}" ] || [ -n "${DISPLAY-}" ]; then
     echo "Start COSMIC Scrolling Test from the greeter after logging out." >&2
-    echo "For a nested test, run the compositor directly with COSMIC_BACKEND=x11 and isolated settings." >&2
+    echo "For a nested test, run the compositor directly with COSMIC_BACKEND=x11." >&2
     exit 1
 fi
 
@@ -70,39 +62,12 @@ if [ -e "$APPLET_STATE/manifest" ]; then
 fi
 
 
-mkdir -p "$TEST_COMP_CONFIG" "$SESSION_BIN"
+mkdir -p "$COMP_CONFIG"
 
-# Keep this isolated development session useful on first launch without
-# coupling the scrolling engine to autotiling inside the compositor. Preserve
-# any explicit choice made later in the test session.
-if [ ! -e "$TEST_COMP_CONFIG/autotile" ]; then
-    printf '%s\n' true >"$TEST_COMP_CONFIG/autotile"
+# Start in Scrolling on first launch. Preserve any later engine choice.
+if [ ! -e "$COMP_CONFIG/scrolling_tiling_engine" ]; then
+    printf '%s\n' Scrolling >"$COMP_CONFIG/scrolling_tiling_engine"
 fi
-
-if [ ! -e "$TEST_COMP_CONFIG/tiling_engine" ]; then
-    printf '%s\n' Scrolling >"$TEST_COMP_CONFIG/tiling_engine"
-fi
-
-# Share the user's real configuration with the whole session and isolate only
-# the compositor's own settings: this compositor writes tiling_engine values
-# the distribution compositor must not read. The wrappers below give only
-# cosmic-comp and the private tiling applet the isolated XDG_CONFIG_HOME;
-# every other process in the session keeps the user's real configuration.
-write_wrapper() {
-    wrapper_name=$1
-    wrapper_target=$2
-    {
-        echo '#!/bin/sh'
-        printf 'XDG_CONFIG_HOME=%s exec %s "$@"\n' "'$TEST_CONFIG_HOME'" "'$wrapper_target'"
-    } >"$SESSION_BIN/$wrapper_name.new"
-    chmod 0755 "$SESSION_BIN/$wrapper_name.new"
-    mv -f "$SESSION_BIN/$wrapper_name.new" "$SESSION_BIN/$wrapper_name"
-}
-
-if [ "$USE_PRIVATE_APPLET" = true ]; then
-    write_wrapper cosmic-applet-tiling "$APPLET_PREFIX/bin/cosmic-applet-tiling"
-fi
-write_wrapper cosmic-comp "$COMPOSITOR"
 
 # start-cosmic imports the launch environment into the persistent user systemd
 # manager. Restore the pre-session values on logout so the private paths cannot
@@ -148,9 +113,9 @@ trap restore_user_manager_environment EXIT
 
 export COSMIC_SCROLLING_TILING=1
 export COSMIC_SCROLLING_SESSION=1
-SESSION_PATH="$SESSION_BIN:$PROJECT_ROOT/target/$COMPOSITOR_PROFILE"
+SESSION_PATH="$PROJECT_ROOT/target/$COMPOSITOR_PROFILE"
 if [ "$USE_PRIVATE_APPLET" = true ]; then
-    SESSION_PATH="$SESSION_BIN:$APPLET_PREFIX/bin:$PROJECT_ROOT/target/$COMPOSITOR_PROFILE"
+    SESSION_PATH="$APPLET_PREFIX/bin:$PROJECT_ROOT/target/$COMPOSITOR_PROFILE"
     export XDG_DATA_DIRS="$APPLET_PREFIX/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
 fi
 export PATH="$SESSION_PATH:$PATH"
