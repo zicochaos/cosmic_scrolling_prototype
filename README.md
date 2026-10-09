@@ -24,9 +24,9 @@ panel configuration.
 
 This fork carries the following fixes over upstream
 `miguel-das/cosmic_scrolling_prototype`, and keeps the compositor current
-with `pop-os/cosmic-comp` (currently `epoch-1.9.0` / `0fbd457`, 50 commits
+with `pop-os/cosmic-comp` (currently `epoch-1.10.0` / `41497b4`, 71 commits
 past the original `8304b18` base — smithay bump, tablet emulation, session
-lock layers; base recorded in `cosmic-comp-scrolling-prototype/UPSTREAM_BASE`). Each fix landed as a
+lock layers, cursor hiding; base recorded in `cosmic-comp-scrolling-prototype/UPSTREAM_BASE`). Each fix landed as a
 separately tested commit; the review order is preserved on the
 `fix/review-findings` branch.
 

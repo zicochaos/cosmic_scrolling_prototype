@@ -1,9 +1,9 @@
 # COSMIC Window Layout applet development
 
-This source-only package comes from the `cosmic-applets` 1.9.0 (epoch-1.9.0)
-workspace. Its `workspace = true` dependencies require the matching upstream
-workspace and lockfile; running Cargo directly in this directory is not a
-supported build.
+This source-only package comes from the `cosmic-applets` 1.10.0
+(epoch-1.10.0) workspace. Its `workspace = true` dependencies require the
+matching upstream workspace and lockfile; running Cargo directly in this
+directory is not a supported build.
 
 For development, match the exact upstream revision used by the installed
 `cosmic-applets` package, not only its semantic version. Pop!_OS may publish
