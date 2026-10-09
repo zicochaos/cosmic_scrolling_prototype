@@ -35,8 +35,8 @@ Use --destdir (or DESTDIR) to remove staged greeter files without sudo.
 The project-private applet is removed in either mode.
 
 Remove the COSMIC Scrolling Test greeter entry and private applet installation.
-Build caches are retained. Isolated session settings are retained unless
---purge-config is supplied.
+Build caches are retained. The scrolling engine choice and the isolated
+settings of older installs are retained unless --purge-config is supplied.
 EOF
         exit 0
         ;;
@@ -64,6 +64,7 @@ PREFIX="$STATE_ROOT/prefix"
 SOURCE_LAUNCHER="$COMP_ROOT/start-scrolling-session.sh"
 SUITE_CONFIG_ROOT="$STATE_ROOT/session-config"
 LEGACY_CONFIG_ROOT="$COMP_ROOT/target/scrolling-test-config"
+ENGINE_KEY="${XDG_CONFIG_HOME:-$HOME/.config}/cosmic/com.system76.CosmicComp/v1/scrolling_tiling_engine"
 
 # Do not follow redirected installation directories when writing/removing files.
 for owned_directory in "$STATE_ROOT" "$PREFIX" "$PREFIX/bin" "$PREFIX/share" \
@@ -153,8 +154,7 @@ rmdir -- "$PREFIX/share/icons" 2>/dev/null || true
 rmdir -- "$PREFIX/share" 2>/dev/null || true
 rmdir -- "$PREFIX" 2>/dev/null || true
 
-# The session launcher regenerates these wrappers on every login; remove
-# them so a stale PATH entry cannot shadow a rebuilt compositor.
+# Older session launchers generated these wrappers on every login.
 SESSION_BIN="$STATE_ROOT/session-bin"
 case "$SESSION_BIN" in
     "$STATE_ROOT"/session-bin) ;;
@@ -172,10 +172,18 @@ if [ "$PURGE_CONFIG" = true ]; then
         *) die "refusing unsafe configuration path: $SUITE_CONFIG_ROOT" ;;
     esac
     [ "$SUITE_CONFIG_ROOT" != "$STATE_ROOT" ] || die "refusing to remove the state root"
-    rm -rf -- "$SUITE_CONFIG_ROOT"
-    note "Removed isolated settings: $SUITE_CONFIG_ROOT"
-    # Older installs kept the isolated settings inside the compositor's
-    # target/ directory; purge that legacy copy too when it is still present.
+    # Only the engine key belongs to this project; the rest of the
+    # namespace is the user's shared compositor configuration.
+    if [ -e "$ENGINE_KEY" ] || [ -L "$ENGINE_KEY" ]; then
+        rm -f -- "$ENGINE_KEY"
+        note "Removed the scrolling engine choice: $ENGINE_KEY"
+    fi
+    # Older installs isolated the compositor's settings in these directories.
+    # They hold copies and symlinks only; rm -rf does not follow the symlinks.
+    if [ -e "$SUITE_CONFIG_ROOT" ] || [ -L "$SUITE_CONFIG_ROOT" ]; then
+        rm -rf -- "$SUITE_CONFIG_ROOT"
+        note "Removed legacy isolated settings: $SUITE_CONFIG_ROOT"
+    fi
     case "$LEGACY_CONFIG_ROOT" in
         "$COMP_ROOT"/target/scrolling-test-config) ;;
         *) die "refusing unsafe configuration path: $LEGACY_CONFIG_ROOT" ;;
@@ -186,7 +194,12 @@ if [ "$PURGE_CONFIG" = true ]; then
         note "Removed legacy isolated settings: $LEGACY_CONFIG_ROOT"
     fi
 else
-    note "Retained isolated settings: $SUITE_CONFIG_ROOT"
+    if [ -e "$ENGINE_KEY" ]; then
+        note "Retained the scrolling engine choice: $ENGINE_KEY"
+    fi
+    if [ -e "$SUITE_CONFIG_ROOT" ]; then
+        note "Retained legacy isolated settings: $SUITE_CONFIG_ROOT"
+    fi
     note "Use ./uninstall.sh --purge-config to remove them."
 fi
 

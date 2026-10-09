@@ -879,7 +879,7 @@ impl Workspaces {
             sets: IndexMap::new(),
             backup_set: None,
             layout: config.cosmic_conf.workspaces.workspace_layout,
-            tiling_engine: config.cosmic_conf.tiling_engine,
+            tiling_engine: config.cosmic_conf.scrolling_tiling_engine,
             mode: config.cosmic_conf.workspaces.workspace_mode,
             autotile: config.cosmic_conf.autotile,
             autotile_behavior: config.cosmic_conf.autotile_behavior,
