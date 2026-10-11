@@ -1242,7 +1242,7 @@ impl State {
                                 .common
                                 .config
                                 .cosmic_conf
-                                .tiling_engine
+                                .scrolling_tiling_engine
                                 .effective_workspace_layout(
                                     self.common.config.cosmic_conf.workspaces.workspace_layout,
                                 );

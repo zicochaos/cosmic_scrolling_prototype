@@ -30,8 +30,6 @@ lock layers, cursor hiding; base recorded in `cosmic-comp-scrolling-prototype/UP
 separately tested commit; the review order is preserved on the
 `fix/review-findings` branch.
 
-Open work for the next sync is listed in [`SYNC-TODO.md`](SYNC-TODO.md).
-
 ### Compositor (Scrolling engine)
 
 - **Fixed a crash when grabbing a freshly mapped window.** Map, remap,
@@ -57,7 +55,7 @@ Open work for the next sync is listed in [`SYNC-TODO.md`](SYNC-TODO.md).
 
 - **Deferred layout changes target the clicked workspace.** The per-workspace
   tiling request is now sent to the workspace captured at click time instead
-  of whichever workspace is active when the asynchronous `tiling_engine`
+  of whichever workspace is active when the asynchronous `scrolling_tiling_engine`
   write completes. The segmented control also waits for the first workspace
   update before accepting clicks.
 - Polish translations for the new layout strings and a grammar fix for
@@ -72,14 +70,13 @@ Open work for the next sync is listed in [`SYNC-TODO.md`](SYNC-TODO.md).
   (release with debug symbols). The profile is recorded in the ownership
   manifest and honored by the session launcher, session installer, PATH, and
   build hints.
-- The test session shares the user's real configuration; only the
-  compositor's own settings are isolated (see the install section), so
-  testing happens with your actual application data and settings instead
-  of a clean slate.
-- The compositor's isolated settings live in
-  `.cosmic-scrolling/session-config` so `cargo clean` cannot delete them;
-  `uninstall.sh --purge-config` removes both that directory and the legacy
-  location.
+- The whole test session, compositor and applet included, shares the
+  user's real configuration. Shortcuts, window rules, theme, keyboard
+  layout and changes made in COSMIC Settings apply as in a normal login.
+  The engine choice lives in the fork-specific `scrolling_tiling_engine`
+  key, which the distribution compositor and applet do not read.
+- `uninstall.sh --purge-config` removes that key and the isolated
+  settings directories left by older installs.
 - The workspace-manifest rewrite tolerates whitespace variants, multi-line
   `default-members`, and inline-closing member lists, and fails loudly on an
   unterminated member list.
@@ -180,14 +177,14 @@ Only greeter files are redirected by `--destdir` (or `DESTDIR`). Builds and the
 private applet remain in this project; staged uninstall removes that private
 applet too. Staging does not add a live login option.
 
-The session launcher prepends `.cosmic-scrolling/session-bin`,
-`.cosmic-scrolling/prefix/bin`, and the compositor build directory to the
-test session's `PATH`. `session-bin` holds small wrappers that give only
-`cosmic-comp` and the private tiling applet an isolated
-`XDG_CONFIG_HOME`; every other process in the session — browsers, editors,
-terminals — keeps and writes your real configuration. The isolation exists
-because this compositor stores `tiling_engine` values the distribution
-compositor must not read. Search paths are restored in the user systemd
+The session launcher prepends `.cosmic-scrolling/prefix/bin` and the
+compositor build directory to the test session's `PATH`. Every process in
+the session, compositor and applet included, uses your real configuration.
+Settings in `com.system76.CosmicComp`, such as `autotile`, are shared with
+normal COSMIC. The engine choice is the one exception: it lives in the
+`scrolling_tiling_engine` key, which the distribution compositor and applet
+do not read. The launcher writes `Scrolling` to that key on first launch and
+keeps any later choice. Search paths are restored in the user systemd
 manager on logout. Keep this checkout in place while it is installed.
 
 ## Layout controls
@@ -221,7 +218,7 @@ supported.
 To switch engines from a terminal inside the test session:
 
 ```bash
-MODE_FILE="$XDG_CONFIG_HOME/cosmic/com.system76.CosmicComp/v1/tiling_engine"
+MODE_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/cosmic/com.system76.CosmicComp/v1/scrolling_tiling_engine"
 printf '%s\n' Scrolling >"$MODE_FILE"
 printf '%s\n' Classic >"$MODE_FILE"
 ```
@@ -245,16 +242,17 @@ cd /path/to/project
 ./uninstall.sh
 ```
 
-Preserve build files but also remove the isolated test-session settings with:
+Preserve build files but also remove the engine choice with:
 
 ```bash
 ./uninstall.sh --purge-config
 ```
 
-The test session's settings live in `.cosmic-scrolling/session-config`, outside
-`target/`, so `cargo clean` cannot delete them. `--purge-config` also removes
-the legacy `cosmic-comp-scrolling-prototype/target/scrolling-test-config` copy
-left by older installs.
+`--purge-config` removes only the `scrolling_tiling_engine` key from your
+configuration. It also removes the isolated settings that older installs left
+in `.cosmic-scrolling/session-config` and
+`cosmic-comp-scrolling-prototype/target/scrolling-test-config`. Those
+directories hold copies and symlinks only; the symlink targets are kept.
 
 If the test session fails, return to the normal **COSMIC** session from the
 greeter or press `Ctrl+Alt+F3`, log in, and run the uninstaller.
@@ -263,7 +261,7 @@ greeter or press `Ctrl+Alt+F3`, log in, and run the uninstaller.
 
 The compositor's Classic width-animation correction remains restricted to
 Scrolling; Classic preserves upstream rendering behavior. The applet uses the
-same `tiling_engine` setting and workspace protocol as this prototype.
+same `scrolling_tiling_engine` setting and workspace protocol as this prototype.
 
 Automated compositor and applet tests run during installation. Script checks can be
 run without a live session:

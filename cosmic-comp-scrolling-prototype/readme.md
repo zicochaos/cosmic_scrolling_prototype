@@ -5,13 +5,12 @@ Scrolling Test**. It runs the compositor built in this clone — normally
 `target/debug/cosmic-comp`, or `target/fastdebug/cosmic-comp` when the parent
 suite recorded `SCROLLING_PROFILE=fastdebug` in `.cosmic-scrolling/manifest` —
 with `COSMIC_SCROLLING_TILING=1`. The normal COSMIC session and
-`/usr/bin/cosmic-comp` are not replaced. Only the compositor's own COSMIC
-configuration is isolated — in `target/scrolling-test-config`, or in
-`.cosmic-scrolling/session-config` when the parent suite is installed
-(keeping the settings safe from `cargo clean`) — because this compositor
-writes `tiling_engine` values the distribution compositor must not read.
-The rest of the session shares your real configuration, so applications
-behave exactly as in a normal login. When the parent suite's `install.sh`
+`/usr/bin/cosmic-comp` are not replaced. The whole session, compositor
+included, shares your real configuration: shortcuts, theme, keyboard layout
+and changes made in COSMIC Settings apply as in a normal login. This
+compositor keeps its engine choice in the fork-specific
+`scrolling_tiling_engine` key, which the distribution compositor and applet do
+not read. The launcher writes `Scrolling` to that key on first launch. When the parent suite's `install.sh`
 has built the modified applet, this launcher also uses its owned
 `.cosmic-scrolling/prefix` for the Window Layout applet and icons. Without
 that optional installation, it uses system applets; use the CLI below to
@@ -108,25 +107,13 @@ selection uses the normal KMS backend.
 
 ## Switch tiling mode from the CLI
 
-Run these commands from a terminal inside **COSMIC Scrolling Test**. Only the
-compositor reads this isolated configuration; in the session your
-`XDG_CONFIG_HOME` stays real, so address the mode file by its full path.
-Define a helper once in that terminal:
+Run these commands from a terminal inside **COSMIC Scrolling Test**:
 
 ```bash
-MODE_FILE="$HOME/Projects-flow-32gb/cosmic_scrolling_prototype/.cosmic-scrolling/session-config/cosmic/com.system76.CosmicComp/v1/tiling_engine"
-set_tiling_mode() {
-    case "$1" in
-        Classic|Scrolling) printf '%s\n' "$1" >"$MODE_FILE" ;;
-        *) printf 'Usage: set_tiling_mode Classic|Scrolling\n' >&2; return 2 ;;
-    esac
-}
+MODE_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/cosmic/com.system76.CosmicComp/v1/scrolling_tiling_engine"
+printf '%s\n' Scrolling >"$MODE_FILE"
+printf '%s\n' Classic >"$MODE_FILE"
 ```
-
-Then switch immediately with `set_tiling_mode Scrolling` or
-`set_tiling_mode Classic`. For a standalone checkout without the parent
-suite, use `target/scrolling-test-config` instead of
-`.cosmic-scrolling/session-config` in the path above.
 
 Values are case-sensitive and must be exactly `Classic` or `Scrolling`. The
 running compositor watches this setting, so logging out or restarting it is not
@@ -144,16 +131,17 @@ sudo rm -f /usr/local/bin/cosmic-scrolling-test-session
 That removes the greeter entry. The normal
 `/usr/share/wayland-sessions/cosmic.desktop` entry is not touched.
 
-Remove settings created by the test session:
+Remove the engine choice written by the test session. Older launchers also
+left isolated settings in `target/scrolling-test-config`:
 
 ```bash
 # Run from the root of the clone used for testing.
+rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/cosmic/com.system76.CosmicComp/v1/scrolling_tiling_engine"
 rm -rf target/scrolling-test-config
 ```
 
-When the parent suite's installer is present, the isolated settings live in
-`.cosmic-scrolling/session-config` instead; remove them with the parent
-`./uninstall.sh --purge-config`.
+When the parent suite's installer is present, use the parent
+`./uninstall.sh --purge-config` instead.
 
 To remove build output produced while testing:
 

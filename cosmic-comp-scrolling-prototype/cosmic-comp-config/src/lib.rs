@@ -109,8 +109,10 @@ pub struct CosmicCompConfig {
     pub keyboard_config: KeyboardConfig,
     /// Autotiling enabled
     pub autotile: bool,
-    /// Selects the tiling layout engine independently of whether tiling is enabled
-    pub tiling_engine: TilingEngine,
+    /// Selects the tiling layout engine independently of whether tiling is enabled.
+    /// The key name is specific to this fork so the distribution compositor,
+    /// which shares this namespace, never reads a value it does not know.
+    pub scrolling_tiling_engine: TilingEngine,
     /// Determines the behavior of the autotile variable
     /// If set to Global, autotile applies to all windows in all workspaces
     /// If set to PerWorkspace, autotile only applies to new windows, and new workspaces
@@ -163,7 +165,7 @@ impl Default for CosmicCompConfig {
             xkb_config: Default::default(),
             keyboard_config: Default::default(),
             autotile: Default::default(),
-            tiling_engine: Default::default(),
+            scrolling_tiling_engine: Default::default(),
             autotile_behavior: Default::default(),
             active_hint: true,
             focus_follows_cursor: false,
@@ -368,7 +370,7 @@ pub enum XwaylandDescaling {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cosmic_config::ConfigSet;
+    use cosmic_config::{ConfigGet, ConfigSet};
     use std::time::{SystemTime, UNIX_EPOCH};
     use workspace::WorkspaceLayout;
 
@@ -400,7 +402,7 @@ mod tests {
     #[test]
     fn cosmic_comp_config_defaults_to_classic_tiling() {
         assert_eq!(
-            CosmicCompConfig::default().tiling_engine,
+            CosmicCompConfig::default().scrolling_tiling_engine,
             TilingEngine::Classic
         );
     }
@@ -426,14 +428,21 @@ mod tests {
         let mut loaded = CosmicCompConfig::get_entry(&config).unwrap_or_else(|(_, config)| config);
 
         assert!(loaded.autotile);
-        assert_eq!(loaded.tiling_engine, TilingEngine::Classic);
+        assert_eq!(loaded.scrolling_tiling_engine, TilingEngine::Classic);
         assert!(
             loaded
-                .set_tiling_engine(&config, TilingEngine::Scrolling)
+                .set_scrolling_tiling_engine(&config, TilingEngine::Scrolling)
                 .unwrap()
         );
         let reloaded = CosmicCompConfig::get_entry(&config).unwrap_or_else(|(_, config)| config);
-        assert_eq!(reloaded.tiling_engine, TilingEngine::Scrolling);
+        assert_eq!(reloaded.scrolling_tiling_engine, TilingEngine::Scrolling);
+        assert_eq!(
+            config
+                .get::<TilingEngine>("scrolling_tiling_engine")
+                .unwrap(),
+            TilingEngine::Scrolling
+        );
+        assert!(config.get::<TilingEngine>("tiling_engine").is_err());
         std::fs::remove_dir_all(config_root).unwrap();
     }
 

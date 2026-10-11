@@ -44,9 +44,24 @@ class SuiteScripts(unittest.TestCase):
         (self.session_bin / 'cosmic-comp').write_text('#!/bin/sh wrapper\n')
         (self.state / 'cache').write_text('retained build')
         self.suite_config = self.state / 'session-config'
+        # A pre-isolation-removal install linked shared namespaces here.
+        self.user_config = Path(self.temp.name) / 'user config'
+        comp_config = self.user_config / 'cosmic/com.system76.CosmicComp/v1'
+        comp_config.mkdir(parents=True)
+        self.engine_key = comp_config / 'scrolling_tiling_engine'
+        self.engine_key.write_text('Scrolling\n')
+        self.shared_key = comp_config / 'autotile'
+        self.shared_key.write_text('true\n')
+        self.linked_theme = self.user_config / 'cosmic/com.system76.CosmicTheme.Mode'
+        self.linked_theme.mkdir()
+        (self.suite_config / 'cosmic').mkdir()
+        (self.suite_config / 'cosmic/com.system76.CosmicTheme.Mode').symlink_to(self.linked_theme)
         self.env = dict(os.environ)
         self.env.pop('DESTDIR', None)
         self.env.pop('COSMIC_SCROLLING_SESSION', None)
+        # Never let a test reach the real user configuration.
+        self.env['HOME'] = str(Path(self.temp.name) / 'home')
+        self.env['XDG_CONFIG_HOME'] = str(self.user_config)
         mock = self.root / 'mock-bin'
         mock.mkdir()
         sudo = mock / 'sudo'
@@ -75,6 +90,7 @@ class SuiteScripts(unittest.TestCase):
         self.assertTrue((self.state / 'manifest').exists())
         self.assertTrue(self.config.exists())
         self.assertTrue(self.session_bin.exists())
+        self.assertTrue(self.engine_key.exists())
 
     def test_uninstall_is_idempotent_and_preserves_normal_session_cache_and_config(self):
         self.uninstall()
@@ -86,11 +102,16 @@ class SuiteScripts(unittest.TestCase):
         self.assertEqual(self.normal.read_text(), 'distribution session')
         self.assertEqual((self.state / 'cache').read_text(), 'retained build')
         self.assertEqual((self.config / 'keep').read_text(), 'settings')
+        self.assertEqual(self.engine_key.read_text(), 'Scrolling\n')
 
-    def test_purge_removes_new_and_legacy_isolated_config(self):
+    def test_purge_removes_engine_key_and_legacy_isolated_config(self):
         self.uninstall('--purge-config')
         self.assertFalse(self.config.exists())
         self.assertFalse(self.suite_config.exists())
+        self.assertFalse(self.engine_key.exists())
+        # Shared settings and the targets of legacy symlinks survive.
+        self.assertEqual(self.shared_key.read_text(), 'true\n')
+        self.assertTrue(self.linked_theme.is_dir())
         self.assertFalse(self.session_bin.exists())
         self.assertTrue((self.comp / 'target/debug/cosmic-comp').exists())
         self.assertTrue((self.state / 'cache').exists())

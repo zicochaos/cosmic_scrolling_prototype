@@ -208,8 +208,8 @@ impl Config {
                 c
             });
         let development_override = std::env::var("COSMIC_SCROLLING_TILING").ok();
-        cosmic_comp_config.tiling_engine = initial_tiling_engine(
-            cosmic_comp_config.tiling_engine,
+        cosmic_comp_config.scrolling_tiling_engine = initial_tiling_engine(
+            cosmic_comp_config.scrolling_tiling_engine,
             development_override.as_deref(),
         );
 
@@ -978,14 +978,14 @@ fn config_changed(config: cosmic_config::Config, keys: Vec<String>, state: &mut 
                     get_config::<WorkspaceConfig>(&config, "workspaces");
                 state.common.update_config();
             }
-            "tiling_engine" => {
-                let new = get_config::<TilingEngine>(&config, "tiling_engine");
-                if new != state.common.config.cosmic_conf.tiling_engine {
+            "scrolling_tiling_engine" => {
+                let new = get_config::<TilingEngine>(&config, "scrolling_tiling_engine");
+                if new != state.common.config.cosmic_conf.scrolling_tiling_engine {
                     quiesce_tiling_engine_interactions(state);
                     if let Some(gesture) = state.common.gesture_state.as_mut() {
                         gesture.action = None;
                     }
-                    state.common.config.cosmic_conf.tiling_engine = new;
+                    state.common.config.cosmic_conf.scrolling_tiling_engine = new;
                     let outputs = {
                         let mut shell = state.common.shell.write();
                         shell.cancel_keyboard_swap();

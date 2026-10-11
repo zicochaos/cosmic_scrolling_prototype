@@ -157,10 +157,9 @@ impl cosmic::Application for Window {
                 .text(fl!("scrolling"))
                 .id(),
         };
-        current_workspace_layout_model.activate(
-            current_workspace_layout_entities
-                .entity(derive_layout_mode(config.autotile, config.tiling_engine)),
-        );
+        current_workspace_layout_model.activate(current_workspace_layout_entities.entity(
+            derive_layout_mode(config.autotile, config.scrolling_tiling_engine),
+        ));
 
         let mut new_workspace_behavior_model = SingleSelectModel::default();
         let new_workspace_entity = new_workspace_behavior_model
@@ -266,7 +265,7 @@ impl cosmic::Application for Window {
                 match result {
                     Ok(transition) => {
                         if let Some(engine) = transition.tiling_engine {
-                            self.config.tiling_engine = engine;
+                            self.config.scrolling_tiling_engine = engine;
                         }
                         if let Some(tiled) = transition.workspace_tiled {
                             let state = if tiled {
@@ -446,7 +445,7 @@ impl cosmic::Application for Window {
 
 impl Window {
     fn current_workspace_layout(&self) -> WorkspaceLayoutMode {
-        derive_layout_mode(self.autotiled, self.config.tiling_engine)
+        derive_layout_mode(self.autotiled, self.config.scrolling_tiling_engine)
     }
 
     fn sync_current_workspace_layout(&mut self) {
@@ -470,8 +469,11 @@ impl Window {
             error!("No known active workspace; ignoring layout request");
             return Task::none();
         };
-        let transition =
-            plan_layout_transition(self.autotiled, self.config.tiling_engine, requested);
+        let transition = plan_layout_transition(
+            self.autotiled,
+            self.config.scrolling_tiling_engine,
+            requested,
+        );
         if transition == LayoutTransition::default() {
             self.sync_current_workspace_layout();
             return Task::none();
@@ -484,7 +486,7 @@ impl Window {
             let result = tokio::task::spawn_blocking(move || {
                 if let Some(engine) = transition.tiling_engine {
                     helper
-                        .set("tiling_engine", engine)
+                        .set("scrolling_tiling_engine", engine)
                         .map_err(|err| err.to_string())?;
                 }
                 Ok(transition)
