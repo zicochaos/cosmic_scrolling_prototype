@@ -212,6 +212,9 @@ Scrolling keyboard and touchpad controls:
   100%.
 - Three-finger horizontal touchpad movement — pan the scrolling strip.
 
+A new window opens in its own 33% column after the focused column. Restored,
+dragged and engine-switched columns keep the 66% default.
+
 Pointer window placement and horizontal or vertical mouse resizing are also
 supported.
 

@@ -7242,7 +7242,7 @@ mod tests {
         );
         assert_eq!(
             layout.scrolling.column_width_fractions(),
-            [0.66, 0.66, 0.66]
+            [0.66, 0.33, 0.66]
         );
     }
 

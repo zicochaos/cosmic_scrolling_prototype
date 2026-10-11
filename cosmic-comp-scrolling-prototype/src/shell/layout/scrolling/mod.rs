@@ -22,6 +22,8 @@ use crate::utils::prelude::*;
 use super::tiling::{Data, PlaceholderType, TilingBlocker};
 
 const DEFAULT_COLUMN_FRACTION: f64 = 0.66;
+/// Genuinely new toplevels open at the narrowest preset.
+const NEW_TOPLEVEL_COLUMN_FRACTION: f64 = 0.33;
 const COLUMN_WIDTH_PRESETS: [f64; 4] = [0.33, 0.5, 0.66, 1.0];
 const MIN_COLUMN_FRACTION: f64 = 0.33;
 const MAX_COLUMN_FRACTION: f64 = 1.0;
@@ -943,7 +945,13 @@ where
             .and_then(|focused| self.tile_position(focused))
             .map(|(column, _)| column + 1)
             .unwrap_or(self.columns.len());
-        self.columns.insert(insertion, Column::single(tile.clone()));
+        self.columns.insert(
+            insertion,
+            Column {
+                tiles: vec![tile.clone()],
+                width: ColumnWidth::new(NEW_TOPLEVEL_COLUMN_FRACTION),
+            },
+        );
         self.set_tile_weight(tile, 1.0);
         self.clamp_viewport();
     }
@@ -1703,7 +1711,10 @@ mod tests {
         model.insert_new_toplevel(5, Some(&2));
 
         assert_eq!(tile_columns(&model), [vec![1, 2], vec![5], vec![3, 4]]);
-        assert_eq!(width_fractions(&model), [0.5, DEFAULT_COLUMN_FRACTION, 0.8]);
+        assert_eq!(
+            width_fractions(&model),
+            [0.5, NEW_TOPLEVEL_COLUMN_FRACTION, 0.8]
+        );
         assert_eq!(model.tile_weight(&1), 2.0);
         assert_eq!(model.tile_weight(&2), 1.0);
         assert_eq!(model.tile_weight(&3), 1.0);
@@ -1722,7 +1733,16 @@ mod tests {
         model.insert_new_toplevel(5, None);
 
         assert_eq!(tile_columns(&model), [[1], [2], [3], [4], [5]]);
-        assert_eq!(width_fractions(&model), [DEFAULT_COLUMN_FRACTION; 5]);
+        assert_eq!(
+            width_fractions(&model),
+            [
+                DEFAULT_COLUMN_FRACTION,
+                DEFAULT_COLUMN_FRACTION,
+                NEW_TOPLEVEL_COLUMN_FRACTION,
+                NEW_TOPLEVEL_COLUMN_FRACTION,
+                NEW_TOPLEVEL_COLUMN_FRACTION
+            ]
+        );
     }
 
     #[test]
