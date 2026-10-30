@@ -178,6 +178,11 @@ fi
 note "Selecting cosmic-applets revision $APPLETS_REV..."
 if RESOLVED_REV=$(git -C "$UPSTREAM_REPO" rev-parse --verify "$APPLETS_REV^{commit}" 2>/dev/null); then
     :
+# GitHub refuses to fetch an abbreviated hash, such as the one in the package
+# version, so refresh the cached branches and tags before fetching directly.
+elif git -C "$UPSTREAM_REPO" fetch --quiet --tags origin \
+    && RESOLVED_REV=$(git -C "$UPSTREAM_REPO" rev-parse --verify "$APPLETS_REV^{commit}" 2>/dev/null); then
+    :
 else
     git -C "$UPSTREAM_REPO" fetch --depth 1 origin "$APPLETS_REV" \
         || die "cannot resolve cosmic-applets revision '$APPLETS_REV'; use a full official commit or tag"
