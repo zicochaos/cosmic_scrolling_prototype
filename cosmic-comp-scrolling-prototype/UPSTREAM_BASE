@@ -1,6 +1,6 @@
 Base of the cosmic-comp-scrolling-prototype fork:
 
-    pop-os/cosmic-comp @ 41497b4 = epoch-1.10.0 (2026-10-05)
+    pop-os/cosmic-comp @ 8cb1802 = epoch-1.11.0 (2026-10-20)
 
 Caught up from the original base 8304b18 (2026-07-28) to a557859
 (epoch-1.8.0) by vendoring that tree and reapplying the scrolling-fork
@@ -12,6 +12,8 @@ further adaptations. The epoch-1.10.0 step three-way merged 0fbd457..41497b4.
 Its one semantic adaptation is in TilingLayout::toplevel_surface_under
 (src/shell/layout/tiling/mod.rs): upstream's split-gap fork lookup applies to
 Classic only, and Scrolling keeps its column and row resize edges on the
-group under the pointer. Cargo.toml and Cargo.lock are verbatim upstream.
+group under the pointer. The epoch-1.11.0 step three-way merged
+41497b4..8cb1802 without conflicts or adaptations; modal dialogs map to the
+floating layer in both engines. Cargo.toml and Cargo.lock are verbatim upstream.
 Rebase onto a newer pop-os/cosmic-comp before assuming any API added after
 this point exists here.
