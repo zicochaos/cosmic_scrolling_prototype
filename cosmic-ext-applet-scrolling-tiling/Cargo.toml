@@ -12,6 +12,7 @@ libcosmic.workspace = true
 anyhow.workspace = true
 cctk.workspace = true
 cosmic-comp-config = { path = "../cosmic-comp/cosmic-comp-config" }
+cosmic-launch = { workspace = true, features = ["systemd", "tokio"] }
 cosmic-protocols.workspace = true
 i18n-embed-fl.workspace = true
 i18n-embed.workspace = true
