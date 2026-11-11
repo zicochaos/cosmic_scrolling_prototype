@@ -343,7 +343,7 @@ impl cosmic::Application for Window {
             Message::OpenSettings => {
                 let mut cmd = std::process::Command::new("cosmic-settings");
                 cmd.arg("window-management");
-                tokio::spawn(cosmic::process::spawn(cmd));
+                tokio::spawn(cosmic_launch::process::spawn(cmd));
             }
         }
         Task::none()

@@ -139,6 +139,10 @@ installed package. If detection fails, provide it explicitly:
 COSMIC_APPLETS_REV='matching-commit' ./install.sh
 ```
 
+The applet needs a `cosmic-applets` revision that contains `582281f`
+(2026-10-27), which moved process spawning into the `cosmic-launch` crate.
+Update older COSMIC packages before building.
+
 The applet is assembled against that upstream workspace in `.cosmic-scrolling/`.
 Its config source is copied from **`cosmic-comp-scrolling-prototype`**, not the
 unmodified `cosmic-comp` reference folder. The installer tests the compositor
