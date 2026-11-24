@@ -27,7 +27,7 @@ use cosmic::{
         segmented_control, text, toggler,
     },
 };
-use cosmic_comp_config::{CosmicCompConfig, TileBehavior};
+use cosmic_comp_config::{CosmicCompConfig, TileBehavior, TilingEngine};
 use cosmic_protocols::workspace::v2::client::zcosmic_workspace_handle_v2::TilingState;
 use std::thread;
 use tracing::error;
@@ -51,6 +51,15 @@ const OFF: &str = "com.system76.CosmicAppletWindowLayoutTest.Off";
 const SCROLLING: &str = "com.system76.CosmicAppletTiling.Scrolling";
 #[cfg(feature = "parallel-test-install")]
 const SCROLLING: &str = "com.system76.CosmicAppletWindowLayoutTest.Scrolling";
+
+/// New tiled workspaces use the global engine; name it only when it is not
+/// the classic layout, which the current-workspace row calls Tiling.
+fn tiled_label(engine: TilingEngine) -> String {
+    match engine {
+        TilingEngine::Classic => fl!("tiled"),
+        TilingEngine::Scrolling => fl!("tiled-scrolling"),
+    }
+}
 
 #[derive(Clone, Copy)]
 struct LayoutEntities {
@@ -164,7 +173,7 @@ impl cosmic::Application for Window {
         let mut new_workspace_behavior_model = SingleSelectModel::default();
         let new_workspace_entity = new_workspace_behavior_model
             .insert()
-            .text(fl!("tiled"))
+            .text(tiled_label(config.scrolling_tiling_engine))
             .id();
         let floating = new_workspace_behavior_model
             .insert()
@@ -266,6 +275,7 @@ impl cosmic::Application for Window {
                     Ok(transition) => {
                         if let Some(engine) = transition.tiling_engine {
                             self.config.scrolling_tiling_engine = engine;
+                            self.sync_new_workspace_label();
                         }
                         if let Some(tiled) = transition.workspace_tiled {
                             let state = if tiled {
@@ -313,6 +323,7 @@ impl cosmic::Application for Window {
                 }
 
                 self.config = *c;
+                self.sync_new_workspace_label();
                 self.sync_current_workspace_layout();
             }
             Message::NewWorkspace(e) => {
@@ -446,6 +457,13 @@ impl cosmic::Application for Window {
 impl Window {
     fn current_workspace_layout(&self) -> WorkspaceLayoutMode {
         derive_layout_mode(self.autotiled, self.config.scrolling_tiling_engine)
+    }
+
+    fn sync_new_workspace_label(&mut self) {
+        self.new_workspace_behavior_model.text_set(
+            self.new_workspace_entity,
+            tiled_label(self.config.scrolling_tiling_engine),
+        );
     }
 
     fn sync_current_workspace_layout(&mut self) {

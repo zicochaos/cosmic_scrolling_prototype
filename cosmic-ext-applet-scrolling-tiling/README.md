@@ -85,6 +85,8 @@ Run the applet with the modified compositor, then verify:
    workspaces continue to display **Floating**.
 6. The separate new-workspace **Tiled/Floating** choice still changes only the
    default tiling state; a tiled new workspace uses the selected global engine.
+   The button reads **Tiled (Scrolling)** while the Scrolling engine is
+   selected.
 7. The panel icon distinguishes Floating, Classic Tiling, and Scrolling, while
    active-hint and window-management controls continue to work.
 

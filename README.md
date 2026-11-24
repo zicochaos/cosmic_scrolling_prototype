@@ -202,7 +202,8 @@ The Window Layout applet provides:
 **The engine choice is global:** Tiling/Scrolling changes every tiled
 workspace. Floating changes only the active workspace and preserves the
 selected engine. The separate **New workspace behavior** control chooses
-Tiled/Floating defaults; it does not select an engine.
+Tiled/Floating defaults; it does not select an engine. Its Tiled button reads
+**Tiled (Scrolling)** while the Scrolling engine is selected.
 
 Scrolling keyboard and touchpad controls:
 
