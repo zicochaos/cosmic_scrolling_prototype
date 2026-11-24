@@ -205,6 +205,12 @@ selected engine. The separate **New workspace behavior** control chooses
 Tiled/Floating defaults; it does not select an engine. Its Tiled button reads
 **Tiled (Scrolling)** while the Scrolling engine is selected.
 
+A per-workspace engine was evaluated and rejected on 2026-11-24. Each
+`TilingLayout` already holds its own mode, but the workspace protocol carries
+no engine, so the applet would need a side channel. The change would also
+spread the fork across more of `src/shell/mod.rs` and make every upstream sync
+harder, which outweighs mixing Classic and Scrolling workspaces.
+
 Scrolling keyboard and touchpad controls:
 
 - `Super+Left/Right` — focus the neighboring column.
