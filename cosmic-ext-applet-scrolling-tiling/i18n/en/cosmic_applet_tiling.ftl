@@ -15,6 +15,7 @@ super = Super
 shift = Shift
 arrow-keys = arrows
 tiled = Tiled
+tiled-scrolling = Tiled (Scrolling)
 floating = Floating
 tiling = Tiling
 scrolling = Scrolling

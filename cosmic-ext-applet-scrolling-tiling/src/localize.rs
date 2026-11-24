@@ -59,7 +59,7 @@ mod tests {
             .expect("English fallback must be available in an installed binary");
         assert!(matches!(resource.data, std::borrow::Cow::Borrowed(_)));
         let text = std::str::from_utf8(&resource.data).unwrap();
-        for key in ["floating =", "tiling =", "scrolling ="] {
+        for key in ["floating =", "tiling =", "scrolling =", "tiled-scrolling ="] {
             assert!(
                 text.lines().any(|line| line.starts_with(key)),
                 "missing {key}"
